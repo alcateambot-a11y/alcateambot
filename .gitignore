@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Environment
+.env
+.env.local
+
+# Database
+*.sqlite
+database.sqlite
+
+# Sessions (WhatsApp auth)
+sessions/
+
+# Build
+client/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temp files
+*.tmp
+*-player-script.js
+
+# Uploads (optional - uncomment if you want to ignore)
+# public/uploads/

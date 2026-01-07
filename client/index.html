@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="id" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo/logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alcateambot.Corp - WhatsApp Bot Indonesia</title>
+    <meta name="description" content="Alcateambot.Corp - Platform WhatsApp Bot terbaik di Indonesia. Buat bot WhatsApp otomatis dengan mudah dan cepat." />
+    <script>
+      // Apply theme IMMEDIATELY before anything else loads
+      (function() {
+        function getTheme() {
+          try {
+            return localStorage.getItem('theme') || 'system';
+          } catch (e) {
+            return 'system';
+          }
+        }
+        
+        function shouldBeDark(theme) {
+          if (theme === 'dark') return true;
+          if (theme === 'light') return false;
+          return window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        
+        var theme = getTheme();
+        var isDark = shouldBeDark(theme);
+        var html = document.documentElement;
+        
+        // Remove default class and apply correct one
+        html.classList.remove('light', 'dark');
+        
+        if (isDark) {
+          html.classList.add('dark');
+          html.style.colorScheme = 'dark';
+        } else {
+          html.classList.add('light');
+          html.style.colorScheme = 'light';
+        }
+      })();
+    </script>
+  </head>
+  <body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition-colors">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
