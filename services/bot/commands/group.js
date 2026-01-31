@@ -112,7 +112,7 @@ async function cmdAdd(sock, msg, bot, args, context = {}) {
 // Promote to admin
 async function cmdPromote(sock, msg, bot, args, context = {}) {
   const remoteJid = msg.key.remoteJid;
-  const { isGroup, isAdmin, isBotAdmin } = context;
+  const { isGroup, isAdmin, isBotAdmin, senderPhone } = context;
   
   if (!isGroup) {
     return await sock.sendMessage(remoteJid, { text: '❌ Perintah ini hanya untuk grup!' });
@@ -126,15 +126,41 @@ async function cmdPromote(sock, msg, bot, args, context = {}) {
     return await sock.sendMessage(remoteJid, { text: '❌ Bot bukan admin!' });
   }
   
+  // Get target user from mention OR reply
+  let targets = [];
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
-  if (!mentioned?.length) {
-    return await sock.sendMessage(remoteJid, { text: '❌ Tag member!\n\nContoh: .promote @user' });
+  const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+  
+  if (mentioned?.length) {
+    targets = mentioned;
+  } else if (quotedParticipant) {
+    targets = [quotedParticipant];
+  }
+  
+  if (!targets.length) {
+    return await sock.sendMessage(remoteJid, { text: '❌ Tag member atau reply pesan!\n\nContoh:\n• .promote @user\n• Reply pesan dengan .promote' });
   }
   
   try {
-    await sock.groupParticipantsUpdate(remoteJid, mentioned, 'promote');
-    await sock.sendMessage(remoteJid, { text: `✅ Berhasil promote ${mentioned.length} member jadi admin` });
+    await sock.groupParticipantsUpdate(remoteJid, targets, 'promote');
+    
+    // Use promoteTextMessage from bot settings
+    const promoteTemplate = bot.promoteTextMessage || '*PROMOTE DETECTED*\nTerdeteksi @{sender} Telah Menjadi Admin Group Oleh @{author}';
+    const author = senderPhone || msg.key.participant || msg.key.remoteJid;
+    
+    // Send message for each promoted user
+    for (const user of targets) {
+      const promoteMsg = promoteTemplate
+        .replace(/{sender}/g, user.split('@')[0])
+        .replace(/{author}/g, author.split('@')[0]);
+      
+      await sock.sendMessage(remoteJid, { 
+        text: promoteMsg,
+        mentions: [user, author]
+      });
+    }
   } catch (err) {
+    console.error('Promote error:', err);
     await sock.sendMessage(remoteJid, { text: '❌ Gagal promote' });
   }
 }
@@ -142,7 +168,7 @@ async function cmdPromote(sock, msg, bot, args, context = {}) {
 // Demote from admin
 async function cmdDemote(sock, msg, bot, args, context = {}) {
   const remoteJid = msg.key.remoteJid;
-  const { isGroup, isAdmin, isBotAdmin } = context;
+  const { isGroup, isAdmin, isBotAdmin, senderPhone } = context;
   
   if (!isGroup) {
     return await sock.sendMessage(remoteJid, { text: '❌ Perintah ini hanya untuk grup!' });
@@ -156,15 +182,41 @@ async function cmdDemote(sock, msg, bot, args, context = {}) {
     return await sock.sendMessage(remoteJid, { text: '❌ Bot bukan admin!' });
   }
   
+  // Get target user from mention OR reply
+  let targets = [];
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
-  if (!mentioned?.length) {
-    return await sock.sendMessage(remoteJid, { text: '❌ Tag admin!\n\nContoh: .demote @user' });
+  const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+  
+  if (mentioned?.length) {
+    targets = mentioned;
+  } else if (quotedParticipant) {
+    targets = [quotedParticipant];
+  }
+  
+  if (!targets.length) {
+    return await sock.sendMessage(remoteJid, { text: '❌ Tag admin atau reply pesan!\n\nContoh:\n• .demote @user\n• Reply pesan dengan .demote' });
   }
   
   try {
-    await sock.groupParticipantsUpdate(remoteJid, mentioned, 'demote');
-    await sock.sendMessage(remoteJid, { text: `✅ Berhasil demote ${mentioned.length} admin` });
+    await sock.groupParticipantsUpdate(remoteJid, targets, 'demote');
+    
+    // Use demoteTextMessage from bot settings
+    const demoteTemplate = bot.demoteTextMessage || '*DEMOTE DETECTED*\nTerdeteksi @{sender} Telah Di Unadmin Oleh @{author}';
+    const author = senderPhone || msg.key.participant || msg.key.remoteJid;
+    
+    // Send message for each demoted user
+    for (const user of targets) {
+      const demoteMsg = demoteTemplate
+        .replace(/{sender}/g, user.split('@')[0])
+        .replace(/{author}/g, author.split('@')[0]);
+      
+      await sock.sendMessage(remoteJid, { 
+        text: demoteMsg,
+        mentions: [user, author]
+      });
+    }
   } catch (err) {
+    console.error('Demote error:', err);
     await sock.sendMessage(remoteJid, { text: '❌ Gagal demote' });
   }
 }
@@ -284,7 +336,24 @@ async function cmdTagAll(sock, msg, bot, args, context = {}) {
   
   try {
     const groupMeta = await sock.groupMetadata(remoteJid);
-    const participants = groupMeta.participants.map(p => p.id);
+    
+    // Get AFK users to exclude them
+    const groupSettings = await getGroupSettings(bot.id, remoteJid);
+    let afkUsers = [];
+    try {
+      afkUsers = JSON.parse(groupSettings.afkUsers || '[]');
+    } catch (e) {
+      afkUsers = [];
+    }
+    const afkNumbers = afkUsers.map(u => u.number);
+    
+    // Filter out AFK users from participants
+    const participants = groupMeta.participants
+      .map(p => p.id)
+      .filter(jid => {
+        const number = jid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+        return !afkNumbers.includes(number);
+      });
     
     let text = `📢 *TAG ALL*\n\n${args.join(' ') || 'Perhatian!'}\n\n`;
     participants.forEach(p => { text += `@${p.split('@')[0]}\n`; });
@@ -310,7 +379,24 @@ async function cmdHideTag(sock, msg, bot, args, context = {}) {
   
   try {
     const groupMeta = await sock.groupMetadata(remoteJid);
-    const participants = groupMeta.participants.map(p => p.id);
+    
+    // Get AFK users to exclude them
+    const groupSettings = await getGroupSettings(bot.id, remoteJid);
+    let afkUsers = [];
+    try {
+      afkUsers = JSON.parse(groupSettings.afkUsers || '[]');
+    } catch (e) {
+      afkUsers = [];
+    }
+    const afkNumbers = afkUsers.map(u => u.number);
+    
+    // Filter out AFK users from participants
+    const participants = groupMeta.participants
+      .map(p => p.id)
+      .filter(jid => {
+        const number = jid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+        return !afkNumbers.includes(number);
+      });
     
     await sock.sendMessage(remoteJid, { 
       text: args.join(' ') || '📢 Perhatian!', 
@@ -935,6 +1021,547 @@ async function cmdSetPPGC(sock, msg, bot, args, context = {}) {
   }
 }
 
+// Whitelist GC - Proteksi admin yang di-whitelist
+async function cmdWhitelistGC(sock, msg, bot, args, context = {}) {
+  const remoteJid = msg.key.remoteJid;
+  const { isGroup, isAdmin } = context;
+  
+  if (!isGroup) {
+    return await sock.sendMessage(remoteJid, { text: '❌ Perintah ini hanya untuk grup!' });
+  }
+  
+  if (!isAdmin && !context.isOwner) {
+    return await sock.sendMessage(remoteJid, { text: '❌ Kamu bukan admin!' });
+  }
+  
+  try {
+    const groupSettings = await getGroupSettings(bot.id, remoteJid);
+    let whitelist = [];
+    try {
+      whitelist = JSON.parse(groupSettings.whitelist || '[]');
+    } catch (e) {
+      whitelist = [];
+    }
+    
+    if (!args.length) {
+      // Show whitelist status and list
+      const status = groupSettings.whitelistEnabled ? '✅ ON' : '❌ OFF';
+      let listText = whitelist.length > 0 
+        ? whitelist.map((num, i) => `${i + 1}. @${num}`).join('\n')
+        : '~ Kosong ~';
+      
+      return await sock.sendMessage(remoteJid, { 
+        text: `🛡️ *WHITELIST PROTECTION*\n\nStatus: ${status}\n\n📋 *Daftar Whitelist:*\n${listText}\n\n─────────────\n*Penggunaan:*\n• .wlgc on - Aktifkan proteksi\n• .wlgc off - Nonaktifkan\n• .wlgc add @user - Tambah via tag\n• .wlgc add 628xxx - Tambah via nomor\n• .wlgc del @user - Hapus via tag\n• .wlgc del 628xxx - Hapus via nomor\n• .wlgc clear - Hapus semua\n\n⚠️ *Catatan:*\nJika admin non-whitelist kick member whitelist, maka admin tersebut akan di-kick dan masuk blacklist!`,
+        mentions: whitelist.map(num => num + '@s.whatsapp.net')
+      });
+    }
+    
+    const action = args[0].toLowerCase();
+    
+    if (action === 'on') {
+      await updateGroupSettings(bot.id, remoteJid, { whitelistEnabled: 1 });
+      await sock.sendMessage(remoteJid, { text: '✅ Whitelist protection diaktifkan!\n\nAdmin yang di-whitelist akan dilindungi.' });
+    } else if (action === 'off') {
+      await updateGroupSettings(bot.id, remoteJid, { whitelistEnabled: 0 });
+      await sock.sendMessage(remoteJid, { text: '❌ Whitelist protection dinonaktifkan!' });
+    } else if (action === 'add') {
+      const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+      
+      // Check if user provided a number directly (not tag)
+      const numberArg = args[1]?.replace(/[^0-9]/g, '');
+      
+      if (!mentioned?.length && !numberArg) {
+        return await sock.sendMessage(remoteJid, { text: '❌ Tag user atau masukkan nomor!\n\nContoh:\n• .wlgc add @user\n• .wlgc add 6281234567890' });
+      }
+      
+      let added = [];
+      
+      // If number provided directly
+      if (numberArg && numberArg.length >= 10) {
+        let number = numberArg;
+        // Normalize to 62 format
+        if (number.startsWith('0')) {
+          number = '62' + number.substring(1);
+        } else if (!number.startsWith('62')) {
+          number = '62' + number;
+        }
+        
+        if (!whitelist.includes(number)) {
+          whitelist.push(number);
+          added.push(number);
+        }
+      }
+      
+      // If mentioned users
+      if (mentioned?.length) {
+        // Get group metadata to resolve LID to phone number
+        let groupMetadata = null;
+        try {
+          groupMetadata = await sock.groupMetadata(remoteJid);
+        } catch (e) {
+          console.error('Failed to get group metadata:', e.message);
+        }
+        
+        for (const jid of mentioned) {
+          let number = jid.split('@')[0].split(':')[0];
+          
+          // If it's a LID format, try to resolve to phone number
+          if (jid.endsWith('@lid') && groupMetadata) {
+            const participant = groupMetadata.participants.find(p => p.id === jid || p.lid === jid);
+            if (participant) {
+              if (participant.id && !participant.id.endsWith('@lid')) {
+                number = participant.id.split('@')[0].split(':')[0];
+              } else if (participant.phoneNumber) {
+                number = participant.phoneNumber.replace(/[^0-9]/g, '');
+              }
+            }
+          }
+          
+          // Clean the number
+          number = number.replace(/[^0-9]/g, '');
+          
+          if (number && !whitelist.includes(number)) {
+            whitelist.push(number);
+            added.push(number);
+          }
+        }
+      }
+      
+      if (added.length > 0) {
+        await updateGroupSettings(bot.id, remoteJid, { whitelist: JSON.stringify(whitelist) });
+        await sock.sendMessage(remoteJid, { 
+          text: `✅ Berhasil menambahkan ${added.length} user ke whitelist:\n${added.map(n => `• ${n}`).join('\n')}`,
+          mentions: mentioned || []
+        });
+      } else {
+        await sock.sendMessage(remoteJid, { text: '⚠️ Semua user sudah ada di whitelist!' });
+      }
+    } else if (action === 'del' || action === 'remove') {
+      const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+      
+      // Check if user provided a number directly
+      const numberArg = args[1]?.replace(/[^0-9]/g, '');
+      
+      if (!mentioned?.length && !numberArg) {
+        return await sock.sendMessage(remoteJid, { text: '❌ Tag user atau masukkan nomor!\n\nContoh:\n• .wlgc del @user\n• .wlgc del 6281234567890' });
+      }
+      
+      let removed = [];
+      
+      // If number provided directly
+      if (numberArg && numberArg.length >= 10) {
+        let number = numberArg;
+        // Normalize to 62 format
+        if (number.startsWith('0')) {
+          number = '62' + number.substring(1);
+        } else if (!number.startsWith('62')) {
+          number = '62' + number;
+        }
+        
+        // Try to find and remove (check various formats)
+        for (let i = whitelist.length - 1; i >= 0; i--) {
+          const wl = whitelist[i];
+          if (wl === number || wl === numberArg || 
+              wl.endsWith(numberArg) || numberArg.endsWith(wl)) {
+            removed.push(whitelist.splice(i, 1)[0]);
+            break;
+          }
+        }
+      }
+      
+      // If mentioned users
+      if (mentioned?.length) {
+        // Get group metadata to resolve LID to phone number
+        let groupMetadata = null;
+        try {
+          groupMetadata = await sock.groupMetadata(remoteJid);
+        } catch (e) {
+          console.error('Failed to get group metadata:', e.message);
+        }
+        
+        for (const jid of mentioned) {
+          let number = jid.split('@')[0].split(':')[0];
+          
+          // If it's a LID format, try to resolve to phone number
+          if (jid.endsWith('@lid') && groupMetadata) {
+            const participant = groupMetadata.participants.find(p => p.id === jid || p.lid === jid);
+            if (participant) {
+              if (participant.id && !participant.id.endsWith('@lid')) {
+                number = participant.id.split('@')[0].split(':')[0];
+              } else if (participant.phoneNumber) {
+                number = participant.phoneNumber.replace(/[^0-9]/g, '');
+              }
+            }
+          }
+          
+          number = number.replace(/[^0-9]/g, '');
+          
+          const index = whitelist.indexOf(number);
+          if (index > -1) {
+            whitelist.splice(index, 1);
+            removed.push(number);
+          }
+        }
+      }
+      
+      if (removed.length > 0) {
+        await updateGroupSettings(bot.id, remoteJid, { whitelist: JSON.stringify(whitelist) });
+        await sock.sendMessage(remoteJid, { 
+          text: `✅ Berhasil menghapus ${removed.length} user dari whitelist:\n${removed.map(n => `• ${n}`).join('\n')}`,
+          mentions: mentioned || []
+        });
+      } else {
+        await sock.sendMessage(remoteJid, { text: '⚠️ User tidak ditemukan di whitelist!' });
+      }
+    } else if (action === 'clear') {
+      await updateGroupSettings(bot.id, remoteJid, { whitelist: '[]' });
+      await sock.sendMessage(remoteJid, { text: '✅ Whitelist berhasil dikosongkan!' });
+    } else {
+      await sock.sendMessage(remoteJid, { text: '❌ Gunakan: .whitelistgc on/off/add/del/clear' });
+    }
+  } catch (err) {
+    console.error('Error in cmdWhitelistGC:', err.message);
+    await sock.sendMessage(remoteJid, { text: '❌ Error: ' + err.message });
+  }
+}
+
+// Blacklist GC - Lihat daftar blacklist
+async function cmdBlacklistGC(sock, msg, bot, args, context = {}) {
+  const remoteJid = msg.key.remoteJid;
+  const { isGroup, isAdmin } = context;
+  
+  if (!isGroup) {
+    return await sock.sendMessage(remoteJid, { text: '❌ Perintah ini hanya untuk grup!' });
+  }
+  
+  if (!isAdmin && !context.isOwner) {
+    return await sock.sendMessage(remoteJid, { text: '❌ Kamu bukan admin!' });
+  }
+  
+  try {
+    const groupSettings = await getGroupSettings(bot.id, remoteJid);
+    let blacklist = [];
+    try {
+      blacklist = JSON.parse(groupSettings.blacklist || '[]');
+    } catch (e) {
+      blacklist = [];
+    }
+    
+    if (!args.length) {
+      // Show blacklist
+      let listText = blacklist.length > 0 
+        ? blacklist.map((num, i) => `${i + 1}. @${num}`).join('\n')
+        : '~ Kosong ~';
+      
+      return await sock.sendMessage(remoteJid, { 
+        text: `🚫 *BLACKLIST*\n\n📋 *Daftar Blacklist:*\n${listText}\n\n─────────────\n*Penggunaan:*\n• .blacklistgc add @user - Tambah ke blacklist\n• .blacklistgc del @user - Hapus dari blacklist\n• .blacklistgc clear - Hapus semua\n\n⚠️ *Catatan:*\nUser di blacklist adalah admin yang pernah kick admin whitelist.`,
+        mentions: blacklist.map(num => num + '@s.whatsapp.net')
+      });
+    }
+    
+    const action = args[0].toLowerCase();
+    
+    if (action === 'add') {
+      const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+      if (!mentioned?.length) {
+        return await sock.sendMessage(remoteJid, { text: '❌ Tag user yang ingin ditambahkan!\n\nContoh: .blacklistgc add @user' });
+      }
+      
+      // Get group metadata to resolve LID to phone number
+      let groupMetadata = null;
+      try {
+        groupMetadata = await sock.groupMetadata(remoteJid);
+      } catch (e) {
+        console.error('Failed to get group metadata:', e.message);
+      }
+      
+      let added = [];
+      for (const jid of mentioned) {
+        let number = jid.split('@')[0].split(':')[0];
+        
+        // If it's a LID format, try to resolve to phone number
+        if (jid.endsWith('@lid') && groupMetadata) {
+          const participant = groupMetadata.participants.find(p => p.id === jid || p.lid === jid);
+          if (participant) {
+            if (participant.id && !participant.id.endsWith('@lid')) {
+              number = participant.id.split('@')[0].split(':')[0];
+            } else if (participant.phoneNumber) {
+              number = participant.phoneNumber.replace(/[^0-9]/g, '');
+            }
+          }
+        }
+        
+        number = number.replace(/[^0-9]/g, '');
+        
+        if (number && !blacklist.includes(number)) {
+          blacklist.push(number);
+          added.push(number);
+        }
+      }
+      
+      if (added.length > 0) {
+        await updateGroupSettings(bot.id, remoteJid, { blacklist: JSON.stringify(blacklist) });
+        await sock.sendMessage(remoteJid, { 
+          text: `✅ Berhasil menambahkan ${added.length} user ke blacklist:\n${added.map(n => `• ${n}`).join('\n')}`,
+          mentions: mentioned
+        });
+      } else {
+        await sock.sendMessage(remoteJid, { text: '⚠️ Semua user sudah ada di blacklist!' });
+      }
+    } else if (action === 'del' || action === 'remove') {
+      const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+      if (!mentioned?.length) {
+        return await sock.sendMessage(remoteJid, { text: '❌ Tag user yang ingin dihapus!\n\nContoh: .blacklistgc del @user' });
+      }
+      
+      // Get group metadata to resolve LID to phone number
+      let groupMetadata = null;
+      try {
+        groupMetadata = await sock.groupMetadata(remoteJid);
+      } catch (e) {
+        console.error('Failed to get group metadata:', e.message);
+      }
+      
+      let removed = [];
+      for (const jid of mentioned) {
+        let number = jid.split('@')[0].split(':')[0];
+        
+        // If it's a LID format, try to resolve to phone number
+        if (jid.endsWith('@lid') && groupMetadata) {
+          const participant = groupMetadata.participants.find(p => p.id === jid || p.lid === jid);
+          if (participant) {
+            if (participant.id && !participant.id.endsWith('@lid')) {
+              number = participant.id.split('@')[0].split(':')[0];
+            } else if (participant.phoneNumber) {
+              number = participant.phoneNumber.replace(/[^0-9]/g, '');
+            }
+          }
+        }
+        
+        number = number.replace(/[^0-9]/g, '');
+        
+        const index = blacklist.indexOf(number);
+        if (index > -1) {
+          blacklist.splice(index, 1);
+          removed.push(number);
+        }
+      }
+      
+      if (removed.length > 0) {
+        await updateGroupSettings(bot.id, remoteJid, { blacklist: JSON.stringify(blacklist) });
+        await sock.sendMessage(remoteJid, { 
+          text: `✅ Berhasil menghapus ${removed.length} user dari blacklist:\n${removed.map(n => `• ${n}`).join('\n')}`,
+          mentions: mentioned
+        });
+      } else {
+        await sock.sendMessage(remoteJid, { text: '⚠️ User tidak ditemukan di blacklist!' });
+      }
+    } else if (action === 'clear') {
+      await updateGroupSettings(bot.id, remoteJid, { blacklist: '[]' });
+      await sock.sendMessage(remoteJid, { text: '✅ Blacklist berhasil dikosongkan!' });
+    } else {
+      await sock.sendMessage(remoteJid, { text: '❌ Gunakan: .blacklistgc add/del/clear' });
+    }
+  } catch (err) {
+    console.error('Error in cmdBlacklistGC:', err.message);
+    await sock.sendMessage(remoteJid, { text: '❌ Error: ' + err.message });
+  }
+}
+
+// AFK - Set status AFK
+async function cmdAFK(sock, msg, bot, args, context = {}) {
+  const remoteJid = msg.key.remoteJid;
+  const { isGroup } = context;
+  
+  if (!isGroup) {
+    return await sock.sendMessage(remoteJid, { text: '❌ Perintah ini hanya untuk grup!' });
+  }
+  
+  try {
+    const sender = msg.key.participant || msg.key.remoteJid;
+    let senderNumber = sender.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+    
+    // Resolve LID to phone number if needed
+    if (sender.endsWith('@lid')) {
+      try {
+        const groupMeta = await sock.groupMetadata(remoteJid);
+        const participant = groupMeta?.participants?.find(p => p.id === sender);
+        if (participant && participant.phoneNumber) {
+          senderNumber = participant.phoneNumber.replace(/[^0-9]/g, '');
+        }
+      } catch (e) {}
+    }
+    
+    const groupSettings = await getGroupSettings(bot.id, remoteJid);
+    let afkUsers = [];
+    try {
+      afkUsers = JSON.parse(groupSettings.afkUsers || '[]');
+    } catch (e) {
+      afkUsers = [];
+    }
+    
+    // Check if already AFK
+    const existingAfk = afkUsers.find(u => u.number === senderNumber);
+    if (existingAfk) {
+      return await sock.sendMessage(remoteJid, { 
+        text: `⚠️ Kamu sudah dalam mode AFK!\n\nAlasan: ${existingAfk.reason}\nSejak: ${new Date(existingAfk.time).toLocaleString('id-ID')}\n\nKetik apapun untuk keluar dari mode AFK.` 
+      });
+    }
+    
+    // Set AFK
+    const reason = args.join(' ') || 'Tidak ada alasan';
+    afkUsers.push({
+      number: senderNumber,
+      jid: sender,
+      reason: reason,
+      time: Date.now()
+    });
+    
+    await updateGroupSettings(bot.id, remoteJid, { afkUsers: JSON.stringify(afkUsers) });
+    
+    // Get pushName for mention
+    const { getMentionName } = require('../utils');
+    const groupMetadata = await sock.groupMetadata(remoteJid);
+    const mentionName = getMentionName(groupMetadata, sender, senderNumber);
+    
+    await sock.sendMessage(remoteJid, { 
+      text: `💤 *AFK MODE AKTIF*\n\n@${mentionName} sekarang AFK\nAlasan: ${reason}\n\n⚠️ Bot tidak akan mention kamu di tagall/hidetag/totag\n⚠️ Mention manual dari user lain akan dihapus otomatis`,
+      mentions: [sender]
+    });
+  } catch (err) {
+    console.error('Error in cmdAFK:', err.message);
+    await sock.sendMessage(remoteJid, { text: '❌ Error: ' + err.message });
+  }
+}
+
+// ToTag - Reply message dengan mention semua member (hidetag)
+async function cmdToTag(sock, msg, bot, args, context = {}) {
+  const remoteJid = msg.key.remoteJid;
+  const { isGroup, isAdmin } = context;
+  
+  if (!isGroup) {
+    return await sock.sendMessage(remoteJid, { text: '❌ Perintah ini hanya untuk grup!' });
+  }
+  
+  if (!isAdmin && !context.isOwner) {
+    return await sock.sendMessage(remoteJid, { text: '❌ Kamu bukan admin!' });
+  }
+  
+  try {
+    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    
+    if (!quotedMsg) {
+      return await sock.sendMessage(remoteJid, { 
+        text: '❌ Reply pesan yang ingin di-totag!\n\nContoh:\nReply gambar/video/text dengan caption .totag' 
+      });
+    }
+    
+    const groupMeta = await sock.groupMetadata(remoteJid);
+    
+    // Get AFK users to exclude them
+    const groupSettings = await getGroupSettings(bot.id, remoteJid);
+    let afkUsers = [];
+    try {
+      afkUsers = JSON.parse(groupSettings.afkUsers || '[]');
+    } catch (e) {
+      afkUsers = [];
+    }
+    const afkNumbers = afkUsers.map(u => u.number);
+    
+    // Filter out AFK users from participants
+    const participants = groupMeta.participants
+      .map(p => p.id)
+      .filter(jid => {
+        const number = jid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+        return !afkNumbers.includes(number);
+      });
+    
+    // Prepare message based on quoted message type
+    let messageToSend = {};
+    
+    if (quotedMsg.conversation) {
+      messageToSend = { 
+        text: quotedMsg.conversation,
+        mentions: participants 
+      };
+    } else if (quotedMsg.extendedTextMessage) {
+      messageToSend = { 
+        text: quotedMsg.extendedTextMessage.text,
+        mentions: participants 
+      };
+    } else if (quotedMsg.imageMessage) {
+      const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+      const buffer = await downloadMediaMessage(
+        { message: { imageMessage: quotedMsg.imageMessage } },
+        'buffer', {}
+      );
+      messageToSend = {
+        image: buffer,
+        caption: quotedMsg.imageMessage.caption || '',
+        mentions: participants
+      };
+    } else if (quotedMsg.videoMessage) {
+      const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+      const buffer = await downloadMediaMessage(
+        { message: { videoMessage: quotedMsg.videoMessage } },
+        'buffer', {}
+      );
+      messageToSend = {
+        video: buffer,
+        caption: quotedMsg.videoMessage.caption || '',
+        mentions: participants
+      };
+    } else if (quotedMsg.stickerMessage) {
+      const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+      const buffer = await downloadMediaMessage(
+        { message: { stickerMessage: quotedMsg.stickerMessage } },
+        'buffer', {}
+      );
+      messageToSend = {
+        sticker: buffer,
+        mentions: participants
+      };
+    } else if (quotedMsg.audioMessage) {
+      const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+      const buffer = await downloadMediaMessage(
+        { message: { audioMessage: quotedMsg.audioMessage } },
+        'buffer', {}
+      );
+      messageToSend = {
+        audio: buffer,
+        mimetype: 'audio/mp4',
+        mentions: participants
+      };
+    } else if (quotedMsg.documentMessage) {
+      const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+      const buffer = await downloadMediaMessage(
+        { message: { documentMessage: quotedMsg.documentMessage } },
+        'buffer', {}
+      );
+      messageToSend = {
+        document: buffer,
+        mimetype: quotedMsg.documentMessage.mimetype,
+        fileName: quotedMsg.documentMessage.fileName,
+        caption: quotedMsg.documentMessage.caption || '',
+        mentions: participants
+      };
+    } else {
+      return await sock.sendMessage(remoteJid, { text: '❌ Tipe pesan tidak didukung!' });
+    }
+    
+    await sock.sendMessage(remoteJid, messageToSend);
+    
+    // Delete the command message
+    try {
+      await sock.sendMessage(remoteJid, { delete: msg.key });
+    } catch (e) {}
+    
+  } catch (err) {
+    console.error('Error in cmdToTag:', err.message);
+    await sock.sendMessage(remoteJid, { text: '❌ Error: ' + err.message });
+  }
+}
+
 module.exports = {
   kick: cmdKick, tendang: cmdKick,
   add: cmdAdd, tambah: cmdAdd,
@@ -946,7 +1573,8 @@ module.exports = {
   linkgc: cmdLinkGC, linkgrup: cmdLinkGC,
   revoke: cmdRevoke, resetlink: cmdRevoke,
   tagall: cmdTagAll, mentionall: cmdTagAll,
-  hidetag: cmdHideTag, ht: cmdHideTag,
+  hidetag: cmdHideTag, ht: cmdHideTag, h: cmdHideTag,
+  totag: cmdToTag, tt: cmdToTag,
   listadmin: cmdListAdmin, admins: cmdListAdmin,
   infogc: cmdInfoGC, gcinfo: cmdInfoGC, infogroup: cmdInfoGC,
   open: cmdOpen, buka: cmdOpen,
@@ -965,5 +1593,8 @@ module.exports = {
   antibadword: cmdAntibadword,
   antisticker: cmdAntisticker,
   antilinkchannel: cmdAntilinkchannel,
-  game: cmdGame
+  game: cmdGame,
+  whitelistgc: cmdWhitelistGC, wlgc: cmdWhitelistGC,
+  blacklistgc: cmdBlacklistGC, blgc: cmdBlacklistGC,
+  afk: cmdAFK
 };

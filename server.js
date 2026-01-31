@@ -143,19 +143,45 @@ async function autoReconnectBots() {
     
     console.log('Found session folders:', botFolders);
     
-    for (const botId of botFolders) {
-      const sessionPath = path.join(sessionsDir, botId);
+    // Import selfbot connection
+    const { createSelfbotSession } = require('./services/selfbotConnection');
+    
+    // Reconnect bots with delay between each to prevent spam
+    for (let i = 0; i < botFolders.length; i++) {
+      const folderName = botFolders[i];
+      const sessionPath = path.join(sessionsDir, folderName);
       const hasSession = fs.readdirSync(sessionPath).length > 0;
       
       if (hasSession) {
+        // Check if this is a selfbot session (starts with "selfbot_")
+        const isSelfbot = folderName.startsWith('selfbot_');
+        const botId = isSelfbot ? parseInt(folderName.replace('selfbot_', '')) : parseInt(folderName);
+        
         // Check if bot exists in database
-        const bot = await Bot.findByPk(parseInt(botId));
+        const bot = await Bot.findByPk(botId);
         if (bot) {
-          console.log('Auto-reconnecting bot:', botId, 'for user:', bot.userId);
-          try {
-            await createSession(parseInt(botId), bot.userId);
-          } catch (err) {
-            console.error('Failed to auto-reconnect bot', botId, ':', err.message);
+          if (isSelfbot && bot.isSelfbot) {
+            console.log('Auto-reconnecting SELFBOT:', botId, 'for user:', bot.userId);
+            try {
+              await createSelfbotSession(botId, bot.userId, bot.phone);
+              // Add 5 second delay between each bot reconnect to prevent spam
+              if (i < botFolders.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+              }
+            } catch (err) {
+              console.error('Failed to auto-reconnect selfbot', botId, ':', err.message);
+            }
+          } else if (!isSelfbot && !bot.isSelfbot) {
+            console.log('Auto-reconnecting bot:', botId, 'for user:', bot.userId);
+            try {
+              await createSession(botId, bot.userId);
+              // Add 5 second delay between each bot reconnect to prevent spam
+              if (i < botFolders.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+              }
+            } catch (err) {
+              console.error('Failed to auto-reconnect bot', botId, ':', err.message);
+            }
           }
         } else {
           console.log('Bot', botId, 'not found in database, skipping');
@@ -176,6 +202,10 @@ sequelize.sync().then(async () => {
     
     // Auto-reconnect bots after server starts
     setTimeout(autoReconnectBots, 2000);
+    
+    // Start premium checker service
+    const { startPremiumChecker } = require('./services/premiumChecker');
+    startPremiumChecker();
   });
 }).catch(err => {
   console.error('Database sync error:', err);

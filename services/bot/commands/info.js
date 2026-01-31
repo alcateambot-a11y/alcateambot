@@ -207,9 +207,20 @@ async function cmdMenu(sock, msg, bot, args, { sender, pushName, usedPrefix }) {
 
 async function cmdPing(sock, msg, bot) {
   const start = Date.now();
-  await sock.sendMessage(msg.key.remoteJid, { text: '🏓 Pong!' });
+  
+  // Send initial message and measure response time
+  const sentMsg = await sock.sendMessage(msg.key.remoteJid, { text: '🏓 Pong!' });
+  
+  // Calculate latency in seconds (like Wibusoft)
   const latency = Date.now() - start;
-  await sock.sendMessage(msg.key.remoteJid, { text: `📶 Latency: ${latency}ms` });
+  const latencySeconds = (latency / 1000).toFixed(4); // 4 decimal places
+  
+  // Edit the message with response time in monospace (kotak hitam)
+  // Pakai backtick (`) untuk monospace formatting di WhatsApp
+  await sock.sendMessage(msg.key.remoteJid, { 
+    text: `\`${latencySeconds}\` second`,
+    edit: sentMsg.key 
+  });
 }
 
 async function cmdInfo(sock, msg, bot) {
@@ -388,50 +399,168 @@ Atau ketik ${usedPrefix}menu untuk melihat semua command.`;
 }
 
 /**
+ * Help Command - Show detailed help for a specific command
+ * Uses helpMenuText template and command settings from database
+ */
+async function cmdHelpCmd(sock, msg, bot, args, { usedPrefix }) {
+  const remoteJid = msg.key.remoteJid;
+  const { Command } = require('../../../models');
+  const { COMMANDS } = require('../commandList');
+  
+  if (!args.length) {
+    const helpText = `📚 *Help Command*
+
+Ketik ${usedPrefix}helpcmd <nama_command> untuk melihat detail command.
+
+Contoh: ${usedPrefix}helpcmd ai
+Contoh: ${usedPrefix}helpcmd sticker
+
+Atau ketik ${usedPrefix}menu untuk melihat semua command.`;
+    
+    await sock.sendMessage(remoteJid, { text: helpText });
+    return;
+  }
+  
+  const cmdName = args[0].toLowerCase().replace(usedPrefix, '');
+  
+  // Find command in master list
+  const masterCmd = COMMANDS.find(c => 
+    c.name === cmdName || 
+    (c.aliases && c.aliases.includes(cmdName))
+  );
+  
+  if (!masterCmd) {
+    await sock.sendMessage(remoteJid, { 
+      text: `❌ Command *${cmdName}* tidak ditemukan.\n\nKetik ${usedPrefix}menu untuk melihat daftar command.` 
+    });
+    return;
+  }
+  
+  // Get saved settings from database
+  let savedCmd = null;
+  try {
+    savedCmd = await Command.findOne({
+      where: { botId: bot.id, name: masterCmd.name }
+    });
+  } catch (e) {
+    console.error('Error getting command settings:', e.message);
+  }
+  
+  // Use saved description/example if available, otherwise use master
+  const description = savedCmd?.description || masterCmd.description || 'Tidak ada deskripsi';
+  let example = savedCmd?.example || masterCmd.example || `${usedPrefix}${masterCmd.name}`;
+  const category = masterCmd.category || 'General';
+  
+  // Replace {prefix} in example with actual prefix
+  example = example.replace(/\{prefix\}/g, usedPrefix);
+  
+  // Get help menu template
+  const helpTemplate = bot.helpMenuText || '*Command:* {command}\n*Category:* {category}\n*Description:* {description}\n*Example:* {example}';
+  
+  // Format message
+  const helpMsg = formatMsg(helpTemplate, {
+    command: `${usedPrefix}${masterCmd.name}`,
+    category: category.charAt(0).toUpperCase() + category.slice(1),
+    description: description,
+    example: example
+  });
+  
+  await sock.sendMessage(remoteJid, { text: helpMsg });
+}
+
+/**
  * Premium Menu - Show only premium features
+ * 100% sync with website dashboard (exact same logic as Command.jsx)
  */
 async function cmdPremium(sock, msg, bot, args, { sender, pushName, usedPrefix }) {
   const remoteJid = msg.key.remoteJid;
   
-  // Get fresh bot data
-  const freshBot = await getBotData(bot.id) || bot;
-  
-  // Get command settings to find premium commands
-  let commandSettings = {};
+  // CRITICAL: Try to get fresh data, fallback to bot parameter if fails
+  let freshBot = null;
   try {
-    commandSettings = JSON.parse(freshBot.commandSettings || '{}');
-  } catch (e) {
-    commandSettings = {};
+    freshBot = await getBotData(bot.id);
+  } catch (err) {
+    console.error('Error getting fresh bot data:', err.message);
   }
   
-  // Find all premium commands and group by category
-  const premiumByCategory = {};
+  // Use fresh data if available, otherwise use bot parameter
+  const botData = freshBot || bot;
   
-  for (const [cmdName, settings] of Object.entries(commandSettings)) {
-    if (settings.premiumOnly) {
-      // Determine category based on command name
-      let category = 'Other';
-      if (['ai', 'imagine', 'gpt', 'gemini'].includes(cmdName)) category = 'AI';
-      else if (['tiktok', 'instagram', 'play', 'pinterest'].includes(cmdName)) category = 'Downloader';
-      else if (['ssweb'].includes(cmdName)) category = 'Tools';
-      else if (['tebakgambar'].includes(cmdName)) category = 'Games';
-      else if (['aesthetic', 'ppcouple'].includes(cmdName)) category = 'Random';
-      
-      if (!premiumByCategory[category]) {
-        premiumByCategory[category] = [];
-      }
-      premiumByCategory[category].push(cmdName);
+  // Get command list for reference
+  const { COMMANDS } = require('../commandList');
+  
+  try {
+    // Parse commandSettings from database
+    let commandSettings = {};
+    try {
+      commandSettings = JSON.parse(botData.commandSettings || '{}');
+    } catch (e) {
+      commandSettings = {};
     }
-  }
-  
-  // Build premium menu text
-  const vars = getMenuVariables(freshBot, sender, pushName, usedPrefix);
-  const isPremiumUser = await isUserPremium(freshBot.userId);
-  const footer = (isPremiumUser && freshBot.footerText) ? freshBot.footerText : (freshBot.botName || 'Alcateambot');
-  
-  let menuText = `*⊱ ━━━━━━━━ ⊰*
+    
+    console.log('=== PREMIUM COMMAND DEBUG ===');
+    console.log('Using fresh data:', freshBot ? 'YES' : 'NO (fallback to cached)');
+    console.log('Bot ID:', botData.id);
+    console.log('Command settings loaded:', Object.keys(commandSettings).length);
+    console.log('CommandSettings JSON length:', botData.commandSettings?.length || 0);
+    
+    // EXACT SAME LOGIC AS WEBSITE (Command.jsx)
+    // For each command in master list, merge with saved settings
+    const premiumByCategory = {};
+    
+    for (const masterCmd of COMMANDS) {
+      // Check saved settings by name OR aliases
+      let savedSettings = commandSettings[masterCmd.name];
+      
+      // If not found by name, try aliases
+      if (!savedSettings && masterCmd.aliases) {
+        for (const alias of masterCmd.aliases) {
+          if (commandSettings[alias]) {
+            savedSettings = commandSettings[alias];
+            console.log(`Found settings for "${masterCmd.name}" via alias "${alias}"`);
+            break;
+          }
+        }
+      }
+      
+      // Merge logic (same as website):
+      // premiumOnly: savedSettings?.premiumOnly ?? masterCmd.premiumOnly ?? false
+      // active: savedSettings?.enabled ?? true
+      const isPremium = savedSettings?.premiumOnly ?? masterCmd.premiumOnly ?? false;
+      const isActive = savedSettings?.enabled ?? true;
+      
+      // Only show if premium AND active
+      if (isPremium && isActive) {
+        const category = masterCmd.category || 'other';
+        
+        if (!premiumByCategory[category]) {
+          premiumByCategory[category] = [];
+        }
+        
+        premiumByCategory[category].push({
+          name: masterCmd.name,
+          description: savedSettings?.description || masterCmd.description || ''
+        });
+      }
+    }
+    
+    // Count total premium commands
+    let totalPremium = 0;
+    for (const category in premiumByCategory) {
+      totalPremium += premiumByCategory[category].length;
+    }
+    
+    console.log('Total premium commands found:', totalPremium);
+    console.log('Premium by category:', Object.keys(premiumByCategory).map(cat => `${cat}:${premiumByCategory[cat].length}`).join(', '));
+    
+    // Build premium menu text
+    const vars = getMenuVariables(botData, sender, pushName, usedPrefix);
+    const isPremiumUser = await isUserPremium(botData.userId);
+    const footer = (isPremiumUser && botData.footerText) ? botData.footerText : (botData.botName || 'Alcateambot');
+    
+    let menuText = `*⊱ ━━━━━━━━ ⊰*
 *• ✦ PREMIUM MENU ✦ •*
-*>> Bot Name:* ${freshBot.botName || 'Bot'} 🏷
+*>> Bot Name:* ${botData.botName || 'Bot'} 🏷
 *>> Prefix:* ${usedPrefix} 🔧
 
 👑 *Fitur Premium* adalah fitur eksklusif
@@ -441,26 +570,42 @@ Hubungi owner untuk membeli premium!
 Ketik: ${usedPrefix}owner
 
 *⊱ ━━━━━━━━ ⊰*\n`;
-
-  const totalPremium = Object.values(premiumByCategory).reduce((sum, cmds) => sum + cmds.length, 0);
-  
-  if (totalPremium === 0) {
-    menuText += `\n_Belum ada fitur premium yang diset_\n`;
-  } else {
-    for (const [category, cmds] of Object.entries(premiumByCategory)) {
-      menuText += `\n*• ✦ ${category.toUpperCase()} ✦ •*\n`;
-      for (const cmd of cmds) {
-        menuText += `┃ 👑 ${usedPrefix}${cmd}\n`;
+    
+    if (totalPremium === 0) {
+      menuText += `\n_Belum ada fitur premium yang diset_\n`;
+      menuText += `\n💡 *Tip:* Admin bisa set fitur premium di dashboard\n`;
+    } else {
+      // Sort categories
+      const categoryOrder = ['ai', 'downloader', 'tools', 'games', 'fun', 'search', 'anime', 'maker', 'group', 'trading', 'other'];
+      const sortedCategories = Object.keys(premiumByCategory).sort((a, b) => {
+        const aIndex = categoryOrder.indexOf(a.toLowerCase());
+        const bIndex = categoryOrder.indexOf(b.toLowerCase());
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
+      });
+      
+      for (const category of sortedCategories) {
+        const cmds = premiumByCategory[category];
+        menuText += `\n*• ✦ ${category.toUpperCase()} ✦ •*\n`;
+        for (const cmd of cmds) {
+          menuText += `┃ 👑 ${usedPrefix}${cmd.name}\n`;
+        }
       }
     }
-  }
-  
-  menuText += `\n*⊱ ━━━━━━━━ ⊰*
+    
+    menuText += `\n*⊱ ━━━━━━━━ ⊰*
 *Total:* ${totalPremium} Fitur Premium
 *⊱ ━━━━━━━━ ⊰*
-_Powered By ${footer}_`;
+_Powered By ${footer}_
 
-  await sock.sendMessage(remoteJid, { text: menuText });
+✅ *100% Sync dengan Dashboard*`;
+
+    await sock.sendMessage(remoteJid, { text: menuText });
+  } catch (err) {
+    console.error('Error in cmdPremium:', err);
+    await sock.sendMessage(remoteJid, { text: '❌ Error loading premium menu' });
+  }
 }
 
 /**
@@ -469,11 +614,32 @@ _Powered By ${footer}_`;
 async function cmdCekPremium(sock, msg, bot, args, { sender, usedPrefix, isGroup, groupMetadata }) {
   const remoteJid = msg.key.remoteJid;
   const { PremiumUser } = require('../../../models');
+  const { Op } = require('sequelize');
   
-  // Determine target number
-  let targetNumber = sender.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+  // Determine target JID and number
   let targetJid = sender;
+  let targetNumber = sender.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
   let targetName = 'Kamu';
+  let targetLid = null;
+  
+  // Extract LID if sender is LID
+  if (sender.endsWith('@lid')) {
+    targetLid = sender.split('@')[0];
+  }
+  
+  // Resolve LID to phone number for sender (if in group)
+  if (sender.endsWith('@lid') && isGroup && groupMetadata) {
+    const participant = groupMetadata.participants.find(p => {
+      if (p.id === sender) return true;
+      if (p.lid && p.lid === sender) return true;
+      return false;
+    });
+    
+    if (participant && participant.phoneNumber) {
+      targetNumber = participant.phoneNumber.split('@')[0].replace(/[^0-9]/g, '');
+      console.log('Resolved sender LID to phone number:', targetNumber);
+    }
+  }
   
   // Check if there's a mention
   const mentionedJid = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
@@ -485,11 +651,16 @@ async function cmdCekPremium(sock, msg, bot, args, { sender, usedPrefix, isGroup
     targetJid = mentionedJid;
     // Resolve LID to phone number if in group
     if (mentionedJid.endsWith('@lid') && isGroup && groupMetadata) {
-      const participant = groupMetadata.participants.find(p => p.id === mentionedJid);
+      const participant = groupMetadata.participants.find(p => {
+        if (p.id === mentionedJid) return true;
+        if (p.lid && p.lid === mentionedJid) return true;
+        return false;
+      });
+      
       if (participant && participant.phoneNumber) {
-        targetNumber = participant.phoneNumber.replace(/[^0-9]/g, '');
+        targetNumber = participant.phoneNumber.split('@')[0].replace(/[^0-9]/g, '');
       } else {
-        targetNumber = mentionedJid.split('@')[0];
+        targetNumber = mentionedJid.split('@')[0].replace(/[^0-9]/g, '');
       }
     } else {
       targetNumber = mentionedJid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
@@ -499,11 +670,16 @@ async function cmdCekPremium(sock, msg, bot, args, { sender, usedPrefix, isGroup
     targetJid = quotedParticipant;
     // Resolve LID to phone number if in group
     if (quotedParticipant.endsWith('@lid') && isGroup && groupMetadata) {
-      const participant = groupMetadata.participants.find(p => p.id === quotedParticipant);
+      const participant = groupMetadata.participants.find(p => {
+        if (p.id === quotedParticipant) return true;
+        if (p.lid && p.lid === quotedParticipant) return true;
+        return false;
+      });
+      
       if (participant && participant.phoneNumber) {
-        targetNumber = participant.phoneNumber.replace(/[^0-9]/g, '');
+        targetNumber = participant.phoneNumber.split('@')[0].replace(/[^0-9]/g, '');
       } else {
-        targetNumber = quotedParticipant.split('@')[0];
+        targetNumber = quotedParticipant.split('@')[0].replace(/[^0-9]/g, '');
       }
     } else {
       targetNumber = quotedParticipant.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
@@ -511,11 +687,15 @@ async function cmdCekPremium(sock, msg, bot, args, { sender, usedPrefix, isGroup
     targetName = `@${targetNumber}`;
   } else if (args.length > 0) {
     // Check if number provided in args
-    targetNumber = args[0].replace(/[^0-9]/g, '');
-    if (targetNumber.length >= 10) {
+    const argNumber = args[0].replace(/[^0-9]/g, '');
+    if (argNumber.length >= 10) {
+      targetNumber = argNumber;
       targetName = targetNumber;
     }
   }
+  
+  // Clean target number one more time to ensure consistency
+  targetNumber = targetNumber.replace(/[^0-9]/g, '');
   
   // Check if owner
   let owners = [];
@@ -532,9 +712,47 @@ async function cmdCekPremium(sock, msg, bot, args, { sender, usedPrefix, isGroup
   // Check premium status
   let premiumUser = null;
   try {
-    premiumUser = await PremiumUser.findOne({
-      where: { botId: bot.id, number: targetNumber }
-    });
+    console.log('=== CEKPREMIUM DEBUG ===');
+    console.log('Bot ID:', bot.id);
+    console.log('Target number (raw):', targetNumber);
+    console.log('Target LID:', targetLid);
+    console.log('Target JID:', targetJid);
+    console.log('Sender (original):', sender);
+    
+    // Clean target number - remove all non-numeric characters
+    targetNumber = targetNumber.replace(/[^0-9]/g, '');
+    
+    console.log('Target number (cleaned):', targetNumber);
+    
+    // Query by number OR LID
+    const whereClause = {
+      botId: bot.id,
+      [Op.or]: [
+        { number: targetNumber }
+      ]
+    };
+    
+    // Add LID to query if available
+    if (targetLid) {
+      whereClause[Op.or].push({ lid: targetLid });
+      console.log('Searching by number OR LID');
+    } else {
+      console.log('Searching by number only');
+    }
+    
+    premiumUser = await PremiumUser.findOne({ where: whereClause });
+    
+    console.log('Premium user found:', premiumUser ? 'YES' : 'NO');
+    if (premiumUser) {
+      console.log('Matched by:', premiumUser.lid === targetLid ? 'LID' : 'Number');
+      console.log('Number:', premiumUser.number);
+      console.log('LID:', premiumUser.lid);
+      console.log('Expired at:', premiumUser.expiredAt);
+      console.log('Is expired:', new Date(premiumUser.expiredAt) < new Date());
+      
+      // Update targetNumber with the correct number from database
+      targetNumber = premiumUser.number;
+    }
   } catch (e) {
     console.error('Error checking premium:', e.message);
   }
@@ -594,6 +812,9 @@ module.exports = {
   help: cmdMenu,        // alias for menu
   listcmd: cmdMenu,     // alias for menu
   listcommand: cmdMenu, // alias for menu
+  helpcmd: cmdHelpCmd,  // help for specific command
+  menucmd: cmdHelpCmd,  // alias for helpcmd
+  cmdhelp: cmdHelpCmd,  // alias for helpcmd
   ping: cmdPing,
   speed: cmdPing,       // alias for ping
   speedtest: cmdPing,   // alias for ping
@@ -615,19 +836,79 @@ module.exports = {
   },
   report: async (sock, msg, bot, args) => {
     if (!args.length) return await sock.sendMessage(msg.key.remoteJid, { text: '❌ Masukkan laporan!\n\nContoh: .report bug di fitur x' });
-    await sock.sendMessage(msg.key.remoteJid, { text: '✅ Laporan terkirim ke owner!\n\nTerima kasih atas laporanmu.' });
+    
+    const OWNER_NUMBER = '6281340078956@s.whatsapp.net';
+    const senderNumber = msg.key.remoteJid.endsWith('@g.us') 
+      ? msg.key.participant 
+      : msg.key.remoteJid;
+    const senderName = msg.pushName || senderNumber.split('@')[0];
+    const reportText = args.join(' ');
+    
+    const reportMessage = `📢 *LAPORAN BUG*\n\n👤 *Dari:* ${senderName}\n📱 *Nomor:* ${senderNumber.split('@')[0]}\n📍 *Chat:* ${msg.key.remoteJid}\n\n📝 *Laporan:*\n${reportText}\n\n⏰ *Waktu:* ${new Date().toLocaleString('id-ID')}`;
+    
+    try {
+      await sock.sendMessage(OWNER_NUMBER, { text: reportMessage });
+      await sock.sendMessage(msg.key.remoteJid, { text: '✅ Laporan terkirim ke owner!\n\nTerima kasih atas laporanmu.' });
+    } catch (err) {
+      await sock.sendMessage(msg.key.remoteJid, { text: '❌ Gagal mengirim laporan. Coba lagi nanti.' });
+    }
   },
   lapor: async (sock, msg, bot, args) => {
     if (!args.length) return await sock.sendMessage(msg.key.remoteJid, { text: '❌ Masukkan laporan!\n\nContoh: .lapor bug di fitur x' });
-    await sock.sendMessage(msg.key.remoteJid, { text: '✅ Laporan terkirim ke owner!\n\nTerima kasih atas laporanmu.' });
+    
+    const OWNER_NUMBER = '6281340078956@s.whatsapp.net';
+    const senderNumber = msg.key.remoteJid.endsWith('@g.us') 
+      ? msg.key.participant 
+      : msg.key.remoteJid;
+    const senderName = msg.pushName || senderNumber.split('@')[0];
+    const reportText = args.join(' ');
+    
+    const reportMessage = `📢 *LAPORAN BUG*\n\n👤 *Dari:* ${senderName}\n📱 *Nomor:* ${senderNumber.split('@')[0]}\n📍 *Chat:* ${msg.key.remoteJid}\n\n📝 *Laporan:*\n${reportText}\n\n⏰ *Waktu:* ${new Date().toLocaleString('id-ID')}`;
+    
+    try {
+      await sock.sendMessage(OWNER_NUMBER, { text: reportMessage });
+      await sock.sendMessage(msg.key.remoteJid, { text: '✅ Laporan terkirim ke owner!\n\nTerima kasih atas laporanmu.' });
+    } catch (err) {
+      await sock.sendMessage(msg.key.remoteJid, { text: '❌ Gagal mengirim laporan. Coba lagi nanti.' });
+    }
   },
   request: async (sock, msg, bot, args) => {
     if (!args.length) return await sock.sendMessage(msg.key.remoteJid, { text: '❌ Masukkan request!\n\nContoh: .request fitur baru' });
-    await sock.sendMessage(msg.key.remoteJid, { text: '✅ Request terkirim ke owner!\n\nTerima kasih atas saranmu.' });
+    
+    const OWNER_NUMBER = '6281340078956@s.whatsapp.net';
+    const senderNumber = msg.key.remoteJid.endsWith('@g.us') 
+      ? msg.key.participant 
+      : msg.key.remoteJid;
+    const senderName = msg.pushName || senderNumber.split('@')[0];
+    const requestText = args.join(' ');
+    
+    const requestMessage = `💡 *REQUEST FITUR*\n\n👤 *Dari:* ${senderName}\n📱 *Nomor:* ${senderNumber.split('@')[0]}\n📍 *Chat:* ${msg.key.remoteJid}\n\n📝 *Request:*\n${requestText}\n\n⏰ *Waktu:* ${new Date().toLocaleString('id-ID')}`;
+    
+    try {
+      await sock.sendMessage(OWNER_NUMBER, { text: requestMessage });
+      await sock.sendMessage(msg.key.remoteJid, { text: '✅ Request terkirim ke owner!\n\nTerima kasih atas saranmu.' });
+    } catch (err) {
+      await sock.sendMessage(msg.key.remoteJid, { text: '❌ Gagal mengirim request. Coba lagi nanti.' });
+    }
   },
   req: async (sock, msg, bot, args) => {
     if (!args.length) return await sock.sendMessage(msg.key.remoteJid, { text: '❌ Masukkan request!\n\nContoh: .req fitur baru' });
-    await sock.sendMessage(msg.key.remoteJid, { text: '✅ Request terkirim ke owner!\n\nTerima kasih atas saranmu.' });
+    
+    const OWNER_NUMBER = '6281340078956@s.whatsapp.net';
+    const senderNumber = msg.key.remoteJid.endsWith('@g.us') 
+      ? msg.key.participant 
+      : msg.key.remoteJid;
+    const senderName = msg.pushName || senderNumber.split('@')[0];
+    const requestText = args.join(' ');
+    
+    const requestMessage = `💡 *REQUEST FITUR*\n\n👤 *Dari:* ${senderName}\n📱 *Nomor:* ${senderNumber.split('@')[0]}\n📍 *Chat:* ${msg.key.remoteJid}\n\n📝 *Request:*\n${requestText}\n\n⏰ *Waktu:* ${new Date().toLocaleString('id-ID')}`;
+    
+    try {
+      await sock.sendMessage(OWNER_NUMBER, { text: requestMessage });
+      await sock.sendMessage(msg.key.remoteJid, { text: '✅ Request terkirim ke owner!\n\nTerima kasih atas saranmu.' });
+    } catch (err) {
+      await sock.sendMessage(msg.key.remoteJid, { text: '❌ Gagal mengirim request. Coba lagi nanti.' });
+    }
   },
   botrules: async (sock, msg) => {
     await sock.sendMessage(msg.key.remoteJid, { text: '📜 *RULES BOT*\n\n1. Jangan spam command\n2. Gunakan bot dengan bijak\n3. Jangan abuse fitur\n4. Hormati sesama user\n5. Ikuti aturan grup\n\n_Pelanggaran = BAN_' });

@@ -24,6 +24,14 @@ const Group = sequelize.define('Group', {
   antiSpam: { type: DataTypes.BOOLEAN, defaultValue: false },
   antiNsfw: { type: DataTypes.BOOLEAN, defaultValue: false },
   
+  // === WHITELIST/BLACKLIST PROTECTION ===
+  whitelistEnabled: { type: DataTypes.BOOLEAN, defaultValue: false }, // Enable whitelist protection
+  whitelist: { type: DataTypes.TEXT, defaultValue: '[]' }, // JSON array of whitelisted numbers
+  blacklist: { type: DataTypes.TEXT, defaultValue: '[]' }, // JSON array of blacklisted numbers
+  
+  // === AFK SYSTEM ===
+  afkUsers: { type: DataTypes.TEXT, defaultValue: '[]' }, // JSON array of AFK users: [{number, jid, reason, time}]
+  
   // === DETECTOR FEATURES ===
   demoteDetector: { type: DataTypes.BOOLEAN, defaultValue: false },
   promoteDetector: { type: DataTypes.BOOLEAN, defaultValue: true },

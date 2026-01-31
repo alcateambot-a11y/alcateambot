@@ -7,7 +7,8 @@
 const COMMANDS = [
   // ==================== INFO (12) ====================
   { name: 'menu', aliases: ['help', 'listcmd', 'listcommand', 'allmenu', 'allcmd'], category: 'info', description: 'Menampilkan menu bot', example: '{prefix}menu', cooldown: 3 },
-  { name: 'ping', aliases: ['speed', 'speedtest', 'p', 'test'], category: 'info', description: 'Cek response time bot', example: '{prefix}ping', cooldown: 2 },
+  { name: 'helpcmd', aliases: ['menucmd', 'cmdhelp', 'helpcommand'], category: 'info', description: 'Melihat detail command tertentu', example: '{prefix}helpcmd ai', cooldown: 3 },
+  { name: 'ping', aliases: ['speed', 'speedtest', 'test'], category: 'info', description: 'Cek response time bot', example: '{prefix}ping', cooldown: 2 },
   { name: 'info', aliases: ['botinfo', 'infobot', 'bot'], category: 'info', description: 'Info bot', example: '{prefix}info', cooldown: 3 },
   { name: 'owner', aliases: ['creator', 'dev', 'developer', 'pemilik'], category: 'info', description: 'Info owner bot', example: '{prefix}owner', cooldown: 3 },
   { name: 'runtime', aliases: ['uptime', 'runtimebot'], category: 'info', description: 'Melihat uptime bot', example: '{prefix}runtime', cooldown: 2 },
@@ -22,7 +23,7 @@ const COMMANDS = [
   // ==================== AI (15) ====================
   { name: 'ai', aliases: ['gpt', 'chatgpt', 'openai', 'ask', 'tanya'], category: 'ai', description: 'Bertanya ke AI ChatGPT', example: '{prefix}ai apa itu javascript?', cooldown: 5, limit: 3, premiumOnly: true },
   { name: 'imagine', aliases: ['dalle', 'generateimg', 'aiimage', 'text2img'], category: 'ai', description: 'Generate gambar dengan AI DALL-E', example: '{prefix}imagine beautiful sunset', cooldown: 10, limit: 2, premiumOnly: true },
-  { name: 'gemini', aliases: ['bard', 'google', 'googleai'], category: 'ai', description: 'Bertanya ke Google Gemini', example: '{prefix}gemini jelaskan quantum', cooldown: 5, limit: 3, premiumOnly: true },
+  { name: 'gemini', aliases: ['bard', 'geminiai', 'googleai'], category: 'ai', description: 'Bertanya ke Google Gemini', example: '{prefix}gemini jelaskan quantum', cooldown: 5, limit: 3, premiumOnly: true },
   { name: 'claude', aliases: ['anthropic', 'claudeai'], category: 'ai', description: 'Bertanya ke Claude AI', example: '{prefix}claude bantu coding', cooldown: 5, limit: 3, premiumOnly: true },
   { name: 'simi', aliases: ['simsimi', 'chat', 'ngobrol'], category: 'ai', description: 'Chat dengan SimSimi', example: '{prefix}simi halo', cooldown: 3 },
   { name: 'aiimg', aliases: ['ai2img', 'txt2img', 'genimg'], category: 'ai', description: 'AI image generation', example: '{prefix}aiimg cat in space', cooldown: 10, limit: 2, premiumOnly: true },
@@ -38,13 +39,13 @@ const COMMANDS = [
   // ==================== SEARCH (20) ====================
   { name: 'google', aliases: ['g', 'cari', 'search'], category: 'search', description: 'Mencari di Google', example: '{prefix}google cara masak nasi', cooldown: 5, limit: 3 },
   { name: 'wiki', aliases: ['wikipedia', 'ensiklopedia'], category: 'search', description: 'Mencari di Wikipedia', example: '{prefix}wiki Indonesia', cooldown: 5, limit: 3 },
-  { name: 'cuaca', aliases: ['weather', 'ramalan', 'prakiraan'], category: 'search', description: 'Melihat cuaca suatu kota', example: '{prefix}cuaca Jakarta', cooldown: 5, limit: 3 },
+  { name: 'cuaca', aliases: ['weather', 'prakiraan', 'cuacahari'], category: 'search', description: 'Melihat cuaca suatu kota', example: '{prefix}cuaca Jakarta', cooldown: 5, limit: 3 },
   { name: 'kbbi', aliases: ['kamus', 'artikata'], category: 'search', description: 'Mencari arti kata di KBBI', example: '{prefix}kbbi cinta', cooldown: 5, limit: 3 },
   { name: 'translate', aliases: ['tr', 'terjemah', 'trans'], category: 'search', description: 'Menerjemahkan teks', example: '{prefix}tr en halo apa kabar', cooldown: 3, limit: 5 },
   { name: 'github', aliases: ['gh', 'git'], category: 'search', description: 'Mencari profil GitHub', example: '{prefix}github torvalds', cooldown: 5, limit: 3 },
   { name: 'ytsearch', aliases: ['yts', 'youtubesearch', 'cariyoutube'], category: 'search', description: 'Cari video YouTube', example: '{prefix}ytsearch tutorial js', cooldown: 5, limit: 3 },
   { name: 'image', aliases: ['img', 'gambar', 'foto', 'picture'], category: 'search', description: 'Cari gambar di Google', example: '{prefix}image kucing lucu', cooldown: 5, limit: 3 },
-  { name: 'lyrics', aliases: ['lirik', 'lagu'], category: 'search', description: 'Cari lirik lagu', example: '{prefix}lyrics bohemian rhapsody', cooldown: 5, limit: 3 },
+  { name: 'lyrics', aliases: ['lirik', 'carilirik', 'lirikku'], category: 'search', description: 'Cari lirik lagu', example: '{prefix}lyrics bohemian rhapsody', cooldown: 5, limit: 3 },
   { name: 'film', aliases: ['movie', 'bioskop', 'sinopsis'], category: 'search', description: 'Cari info film', example: '{prefix}film avengers', cooldown: 5, limit: 3 },
   { name: 'anime', aliases: ['mal', 'myanimelist', 'infoanimee'], category: 'search', description: 'Cari info anime', example: '{prefix}anime naruto', cooldown: 5, limit: 3 },
   { name: 'manga', aliases: ['komik', 'infomanga'], category: 'search', description: 'Cari info manga', example: '{prefix}manga one piece', cooldown: 5, limit: 3 },
@@ -53,15 +54,15 @@ const COMMANDS = [
   { name: 'jadwalsholat', aliases: ['sholat', 'prayer', 'waktusolat'], category: 'search', description: 'Jadwal sholat', example: '{prefix}jadwalsholat jakarta', cooldown: 5, limit: 3 },
   { name: 'quran', aliases: ['alquran', 'ayat', 'surah'], category: 'search', description: 'Cari ayat Al-Quran', example: '{prefix}quran 1:1', cooldown: 5, limit: 3 },
   { name: 'hadist', aliases: ['hadits', 'hadis'], category: 'search', description: 'Cari hadist', example: '{prefix}hadist bukhari 1', cooldown: 5, limit: 3 },
-  { name: 'kurs', aliases: ['currency', 'exchange', 'matauang'], category: 'search', description: 'Cek kurs mata uang', example: '{prefix}kurs usd', cooldown: 5, limit: 3 },
-  { name: 'crypto', aliases: ['btc', 'coin', 'bitcoin', 'eth'], category: 'search', description: 'Cek harga crypto', example: '{prefix}crypto bitcoin', cooldown: 5, limit: 3 },
+  { name: 'kurs', aliases: ['currency', 'exchange', 'matauang'], category: 'trading', description: 'Cek kurs mata uang', example: '{prefix}kurs usd', cooldown: 5, limit: 3 },
+  { name: 'crypto', aliases: ['btc', 'bitcoin', 'eth', 'hargacrypto'], category: 'trading', description: 'Cek harga crypto', example: '{prefix}crypto bitcoin', cooldown: 5, limit: 3 },
   { name: 'news', aliases: ['berita', 'kabar', 'headline'], category: 'search', description: 'Berita terkini', example: '{prefix}news', cooldown: 5, limit: 3 },
 
   // ==================== DOWNLOADER (25) ====================
-  { name: 'play', aliases: ['p', 'lagu', 'song', 'musik'], category: 'downloader', description: 'Download lagu dari YouTube', example: '{prefix}play dewa 19', cooldown: 10, limit: 5 },
+  { name: 'play', aliases: ['p', 'song', 'musik', 'putar'], category: 'downloader', description: 'Download lagu dari YouTube', example: '{prefix}play dewa 19', cooldown: 10, limit: 5 },
   { name: 'playvid', aliases: ['pv', 'video', 'ytvideo', 'vid'], category: 'downloader', description: 'Download video dari YouTube', example: '{prefix}playvid tutorial', cooldown: 15, limit: 3 },
   { name: 'ytmp3', aliases: ['yta', 'youtubemp3', 'ytaudio'], category: 'downloader', description: 'Download audio YouTube via URL', example: '{prefix}ytmp3 url', cooldown: 10, limit: 5 },
-  { name: 'ytmp4', aliases: ['ytv', 'youtubemp4', 'ytvideo'], category: 'downloader', description: 'Download video YouTube via URL', example: '{prefix}ytmp4 url', cooldown: 15, limit: 3 },
+  { name: 'ytmp4', aliases: ['ytv', 'youtubemp4', 'ytvid'], category: 'downloader', description: 'Download video YouTube via URL', example: '{prefix}ytmp4 url', cooldown: 15, limit: 3 },
   { name: 'tiktok', aliases: ['tt', 'ttdl', 'tiktokdl', 'tiktokvideo'], category: 'downloader', description: 'Download video TikTok', example: '{prefix}tiktok url', cooldown: 10, limit: 5 },
   { name: 'tiktokmp3', aliases: ['ttmp3', 'tta', 'tiktokaudio', 'ttsound'], category: 'downloader', description: 'Download audio TikTok', example: '{prefix}tiktokmp3 url', cooldown: 10, limit: 5 },
   { name: 'instagram', aliases: ['ig', 'igdl', 'igdownload', 'instadl'], category: 'downloader', description: 'Download post Instagram', example: '{prefix}ig url', cooldown: 10, limit: 5 },
@@ -138,15 +139,15 @@ const COMMANDS = [
   { name: 'randomnama', aliases: ['randname', 'namarandom', 'generatename'], category: 'fun', description: 'Generate nama random', example: '{prefix}randomnama', cooldown: 3, limit: 5 },
   { name: 'ship', aliases: ['match', 'cocok', 'kecocokan', 'love'], category: 'fun', description: 'Cek kecocokan', example: '{prefix}ship @user1 @user2', cooldown: 5, limit: 5 },
   { name: 'rate', aliases: ['nilai', 'rating', 'skor'], category: 'fun', description: 'Rate sesuatu', example: '{prefix}rate @user', cooldown: 5, limit: 5 },
-  { name: 'zodiak', aliases: ['zodiac', 'horoscope', 'ramalan'], category: 'fun', description: 'Ramalan zodiak', example: '{prefix}zodiak aries', cooldown: 5, limit: 3 },
+  { name: 'zodiak', aliases: ['zodiac', 'horoscope', 'ramalanzodiak'], category: 'fun', description: 'Ramalan zodiak', example: '{prefix}zodiak aries', cooldown: 5, limit: 3 },
   { name: 'primbon', aliases: ['primbonJawa', 'weton'], category: 'fun', description: 'Primbon Jawa', example: '{prefix}primbon 01-01-2000', cooldown: 5, limit: 3 },
-  { name: 'artinama', aliases: ['nameart', 'meaningname', 'artinama'], category: 'fun', description: 'Arti nama', example: '{prefix}artinama budi', cooldown: 5, limit: 3 },
+  { name: 'artinama', aliases: ['nameart', 'meaningname', 'artinamaku'], category: 'fun', description: 'Arti nama', example: '{prefix}artinama budi', cooldown: 5, limit: 3 },
   { name: 'cekjodoh', aliases: ['jodoh', 'matchmaking', 'cintaku'], category: 'fun', description: 'Cek jodoh', example: '{prefix}cekjodoh nama1 nama2', cooldown: 5, limit: 5 },
 
   // ==================== GAMES (20) ====================
   { name: 'slot', aliases: ['slots', 'slotmachine', 'mesinslot'], category: 'game', description: 'Main slot machine', example: '{prefix}slot', cooldown: 5, limit: 10 },
   { name: 'dice', aliases: ['dadu', 'roll', 'rolldice'], category: 'game', description: 'Lempar dadu', example: '{prefix}dice', cooldown: 3, limit: 10 },
-  { name: 'coinflip', aliases: ['flip', 'coin', 'koin', 'lemparkoin'], category: 'game', description: 'Lempar koin', example: '{prefix}coinflip', cooldown: 3, limit: 10 },
+  { name: 'coinflip', aliases: ['flipcoin', 'coin', 'koin', 'lemparkoin'], category: 'game', description: 'Lempar koin', example: '{prefix}coinflip', cooldown: 3, limit: 10 },
   { name: 'rps', aliases: ['suit', 'jankenpon', 'bgs', 'batugunting'], category: 'game', description: 'Batu gunting kertas', example: '{prefix}rps batu', cooldown: 3, limit: 10 },
   { name: 'tebakgambar', aliases: ['tg', 'guesspicture', 'tebakgmbr'], category: 'game', description: 'Tebak gambar', example: '{prefix}tebakgambar', cooldown: 10, limit: 5 },
   { name: 'tebakkata', aliases: ['tk', 'guessword', 'tebakkta'], category: 'game', description: 'Tebak kata', example: '{prefix}tebakkata', cooldown: 10, limit: 5 },
@@ -195,8 +196,10 @@ const COMMANDS = [
   { name: 'setppgc', aliases: ['setfotogc', 'setppgrup', 'ubahfotogc'], category: 'group', description: 'Ubah foto grup', example: '{prefix}setppgc', cooldown: 10, groupOnly: true, adminOnly: true, botAdminRequired: true },
   { name: 'linkgc', aliases: ['linkgrup', 'getlink', 'gruplink'], category: 'group', description: 'Dapatkan link grup', example: '{prefix}linkgc', cooldown: 5, groupOnly: true, botAdminRequired: true },
   { name: 'revoke', aliases: ['resetlink', 'newlink', 'linkbaru'], category: 'group', description: 'Reset link grup', example: '{prefix}revoke', cooldown: 10, groupOnly: true, adminOnly: true, botAdminRequired: true },
-  { name: 'tagall', aliases: ['mentionall', 'everyone', 'all'], category: 'group', description: 'Tag semua member', example: '{prefix}tagall pesan', cooldown: 30, groupOnly: true, adminOnly: true },
-  { name: 'hidetag', aliases: ['ht', 'hiddentag', 'tagsilent'], category: 'group', description: 'Hidden tag semua member', example: '{prefix}hidetag pesan', cooldown: 30, groupOnly: true, adminOnly: true },
+  { name: 'tagall', aliases: ['mentionall', 'everyone', 'all'], category: 'group', description: 'Tag semua member (kecuali yang AFK)', example: '{prefix}tagall pesan', cooldown: 30, groupOnly: true, adminOnly: true },
+  { name: 'hidetag', aliases: ['ht', 'h', 'hiddentag', 'tagsilent'], category: 'group', description: 'Hidden tag semua member (kecuali yang AFK)', example: '{prefix}hidetag pesan', cooldown: 30, groupOnly: true, adminOnly: true },
+  { name: 'totag', aliases: ['tt', 'tagmedia', 'replaytag'], category: 'group', description: 'Reply pesan untuk mention semua member (kecuali yang AFK)', example: '{prefix}totag (reply pesan)', cooldown: 30, groupOnly: true, adminOnly: true },
+  { name: 'afk', aliases: ['awayfromkeyboard', 'away'], category: 'group', description: 'Set status AFK (bot tidak akan mention kamu)', example: '{prefix}afk alasan', cooldown: 5, groupOnly: true },
   { name: 'listadmin', aliases: ['admins', 'adminlist', 'daftaradmin'], category: 'group', description: 'List admin grup', example: '{prefix}listadmin', cooldown: 5, groupOnly: true },
   { name: 'infogc', aliases: ['gcinfo', 'grupinfo', 'infogrup', 'infogroup'], category: 'group', description: 'Info lengkap grup (Wibusoft style)', example: '{prefix}infogc', cooldown: 5, groupOnly: true },
   { name: 'open', aliases: ['buka', 'opengc', 'bukagrup'], category: 'group', description: 'Buka grup (semua bisa chat)', example: '{prefix}open', cooldown: 5, groupOnly: true, adminOnly: true, botAdminRequired: true },
@@ -206,7 +209,7 @@ const COMMANDS = [
   { name: 'antilink', aliases: ['nolink', 'blocklink'], category: 'group', description: 'Anti link grup lain', example: '{prefix}antilink on/off/warn', cooldown: 5, groupOnly: true, adminOnly: true },
   { name: 'antispam', aliases: ['nospam', 'blockspam'], category: 'group', description: 'Anti spam message', example: '{prefix}antispam on/off', cooldown: 5, groupOnly: true, adminOnly: true },
   { name: 'mute', aliases: ['mutegc', 'silent', 'diam'], category: 'group', description: 'Mute bot di grup', example: '{prefix}mute on/off', cooldown: 5, groupOnly: true, adminOnly: true },
-  { name: 'setrules', aliases: ['rules', 'setaturan', 'aturan'], category: 'group', description: 'Set rules grup', example: '{prefix}setrules <aturan>', cooldown: 5, groupOnly: true, adminOnly: true },
+  { name: 'setrules', aliases: ['setaturan', 'aturangrup', 'rulesgrup'], category: 'group', description: 'Set rules grup', example: '{prefix}setrules <aturan>', cooldown: 5, groupOnly: true, adminOnly: true },
   { name: 'antidelete', aliases: ['antidel', 'nodelete'], category: 'group', description: 'Anti delete message', example: '{prefix}antidelete on/off', cooldown: 5, groupOnly: true, adminOnly: true },
   { name: 'antibot', aliases: ['nobot', 'blockbot'], category: 'group', description: 'Anti bot lain', example: '{prefix}antibot on/off', cooldown: 5, groupOnly: true, adminOnly: true },
   { name: 'antiwame', aliases: ['nowame', 'blockwame'], category: 'group', description: 'Anti wa.me links', example: '{prefix}antiwame on/off', cooldown: 5, groupOnly: true, adminOnly: true },
@@ -216,6 +219,11 @@ const COMMANDS = [
   { name: 'antisticker', aliases: ['nosticker', 'blocksticker'], category: 'group', description: 'Anti sticker', example: '{prefix}antisticker on/off', cooldown: 5, groupOnly: true, adminOnly: true },
   { name: 'antilinkchannel', aliases: ['nochannel', 'blockchannel'], category: 'group', description: 'Anti link channel', example: '{prefix}antilinkchannel on/off', cooldown: 5, groupOnly: true, adminOnly: true },
   { name: 'game', aliases: ['gamegc', 'togglegame'], category: 'group', description: 'Toggle game di grup', example: '{prefix}game on/off', cooldown: 5, groupOnly: true, adminOnly: true },
+  { name: 'whitelistgc', aliases: ['wlgc', 'whitelist'], category: 'group', description: 'Proteksi admin whitelist', example: '{prefix}whitelistgc on/off/add/del @user', cooldown: 5, groupOnly: true, adminOnly: true },
+  { name: 'blacklistgc', aliases: ['blgc', 'blacklist'], category: 'group', description: 'Lihat/kelola blacklist', example: '{prefix}blacklistgc add/del @user', cooldown: 5, groupOnly: true, adminOnly: true },
+
+  // ==================== SELFBOT (1) ====================
+  { name: 'selfbot', aliases: ['sb'], category: 'tools', description: 'Buat selfbot dengan pairing code', example: '{prefix}sb 628123456789', cooldown: 10 },
 
   // ==================== OWNER (15) ====================
   { name: 'broadcast', aliases: ['bc', 'announce', 'pengumuman'], category: 'owner', description: 'Broadcast pesan ke semua chat', example: '{prefix}broadcast pesan', cooldown: 60, ownerOnly: true },
@@ -250,6 +258,13 @@ const COMMANDS = [
   { name: 'triggered', aliases: ['triggeredeffect', 'marah'], category: 'maker', description: 'Buat efek triggered', example: '{prefix}triggered', cooldown: 10, limit: 3 },
   { name: 'wasted', aliases: ['wastedgta', 'gtawasted', 'mati'], category: 'maker', description: 'Buat efek wasted GTA', example: '{prefix}wasted', cooldown: 10, limit: 3 },
   { name: 'trash', aliases: ['sampah', 'trasheffect', 'buangsampah'], category: 'maker', description: 'Buat efek trash', example: '{prefix}trash', cooldown: 10, limit: 3 },
+
+  // ==================== TRADING (6) ====================
+  { name: 'memecoin', aliases: ['memesignal', 'shibainu', 'doge'], category: 'trading', description: 'Analisis & signal memecoin', example: '{prefix}memecoin doge', cooldown: 10, limit: 5, premiumOnly: true },
+  { name: 'forex', aliases: ['fx', 'signal', 'trading', 'forexsignal'], category: 'trading', description: 'Analisis & signal forex', example: '{prefix}forex eurusd', cooldown: 10, limit: 5, premiumOnly: true },
+  { name: 'prediksicoin', aliases: ['prediksi', 'pumpfinder', 'trending', 'topgainer'], category: 'trading', description: 'Prediksi coin potensial pump', example: '{prefix}prediksicoin', cooldown: 15, limit: 3, premiumOnly: true },
+  { name: 'saham', aliases: ['stock', 'stocks', 'idx'], category: 'trading', description: 'Cek harga saham IDX & US', example: '{prefix}saham BBCA', cooldown: 10, limit: 5, premiumOnly: true },
+  { name: 'prediksisaham', aliases: ['stockprediksi', 'topstock', 'stockgainer'], category: 'trading', description: 'Prediksi saham potensial', example: '{prefix}prediksisaham', cooldown: 15, limit: 3, premiumOnly: true },
 ];
 
 /**

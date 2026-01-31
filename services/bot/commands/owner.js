@@ -85,35 +85,193 @@ async function cmdAddPrem(sock, msg, bot, args, context = {}) {
     return await sock.sendMessage(msg.key.remoteJid, { text: '❌ Perintah ini hanya untuk owner!' });
   }
   
+  const remoteJid = msg.key.remoteJid;
+  const isGroup = remoteJid.endsWith('@g.us');
+  
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
-  if (!mentioned?.length && args.length < 2) {
-    return await sock.sendMessage(msg.key.remoteJid, { text: '❌ Format: .addprem @user 30d\n\nContoh: .addprem @user 30d (30 hari)' });
+  const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+  
+  let targetJid = null;
+  let durationArg = '30d';
+  
+  // Priority: 1. Mention, 2. Reply, 3. Number in args
+  if (mentioned?.length) {
+    // Method 1: Mention
+    targetJid = mentioned[0];
+    // Filter out mention text from args
+    const filteredArgs = args.filter(arg => !arg.startsWith('@'));
+    durationArg = filteredArgs[0] || '30d';
+  } else if (quotedMsg && quotedParticipant) {
+    // Method 2: Reply
+    targetJid = quotedParticipant;
+    durationArg = args[0] || '30d';
+  } else if (args.length >= 1) {
+    // Method 3: Number in args
+    const numberArg = args[0].replace(/[^0-9]/g, '');
+    if (numberArg.length >= 10) {
+      targetJid = numberArg + '@s.whatsapp.net';
+      durationArg = args[1] || '30d';
+    }
   }
   
-  const target = mentioned?.[0] || (args[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net');
-  const duration = args[mentioned?.length ? 0 : 1] || '30d';
+  if (!targetJid) {
+    return await sock.sendMessage(remoteJid, { 
+      text: '❌ Format salah!\n\n' +
+            'Cara pakai:\n' +
+            '1. Tag: .addprem @user 30d\n' +
+            '2. Reply: Reply pesan user lalu ketik .addprem 30d\n' +
+            '3. Nomor: .addprem 628123456789 30d'
+    });
+  }
   
-  // Parse duration
-  const days = parseInt(duration.replace(/[^0-9]/g, '')) || 30;
+  // Resolve LID to phone number if in group
+  let targetNumber = targetJid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+  
+  if (targetJid.endsWith('@lid') && isGroup) {
+    try {
+      const groupMetadata = await sock.groupMetadata(remoteJid);
+      const participant = groupMetadata.participants.find(p => {
+        if (p.id === targetJid) return true;
+        if (p.lid && p.lid === targetJid) return true;
+        return false;
+      });
+      
+      if (participant && participant.phoneNumber) {
+        targetNumber = participant.phoneNumber.split('@')[0].replace(/[^0-9]/g, '');
+        console.log('Resolved LID to phone number:', targetNumber);
+      }
+    } catch (e) {
+      console.error('Error resolving LID:', e.message);
+    }
+  }
+  
+  console.log('=== ADDPREM DEBUG ===');
+  console.log('Target JID:', targetJid);
+  console.log('Target Number (final):', targetNumber);
+  console.log('Duration arg:', durationArg);
+  
+  // Parse duration - support format: 30d, 30, 7d, etc
+  let days = 30; // default
+  const match = durationArg.match(/(\d+)([dhm])?/i);
+  if (match) {
+    const value = parseInt(match[1]);
+    const unit = (match[2] || 'd').toLowerCase();
+    
+    if (unit === 'd') {
+      days = value;
+    } else if (unit === 'h') {
+      days = Math.ceil(value / 24);
+    } else if (unit === 'm') {
+      days = Math.ceil(value / (24 * 30));
+    }
+  }
+  
+  // Calculate expiry date
   const expiry = new Date();
   expiry.setDate(expiry.getDate() + days);
   
+  console.log('=== ADDPREM DEBUG ===');
+  console.log('Duration arg:', durationArg);
+  console.log('Parsed days:', days);
+  console.log('Expiry date:', expiry);
+  console.log('Expiry ISO:', expiry.toISOString());
+  
   try {
-    // Save to database
-    await PremiumUser.findOrCreate({
-      where: { number: target.split('@')[0] },
+    // Extract LID if available (for PC detection)
+    const userLid = targetJid.endsWith('@lid') ? targetJid.split('@')[0] : null;
+    
+    // Upsert to database (create or update)
+    const [premUser, created] = await PremiumUser.findOrCreate({
+      where: { botId: bot.id, number: targetNumber },
       defaults: { 
-        number: target.split('@')[0],
-        expiredAt: expiry,
-        botId: bot?.id || 1
+        botId: bot.id,
+        number: targetNumber,
+        lid: userLid,
+        expiredAt: expiry
       }
     });
     
-    await sock.sendMessage(msg.key.remoteJid, { 
-      text: `✅ User ${target.split('@')[0]} sekarang premium!\n\n⏰ Expired: ${expiry.toLocaleDateString('id-ID')}` 
+    // If already exists, update expiry and LID
+    if (!created) {
+      await premUser.update({ 
+        expiredAt: expiry,
+        lid: userLid || premUser.lid // Keep existing LID if new one is null
+      });
+    }
+    
+    console.log('Premium user saved:', {
+      number: targetNumber,
+      lid: userLid,
+      expiredAt: premUser.expiredAt,
+      created: created
     });
+    
+    // Get mention name (pushName or number)
+    const { getMentionName } = require('../utils');
+    let mentionName = targetNumber;
+    
+    if (isGroup) {
+      try {
+        const groupMetadata = await sock.groupMetadata(remoteJid);
+        mentionName = getMentionName(groupMetadata, targetJid, targetNumber);
+      } catch (e) {}
+    }
+    
+    const action = created ? 'sekarang premium' : 'diperpanjang premium';
+    
+    // Format date with fallback
+    let dateStr;
+    try {
+      dateStr = new Date(premUser.expiredAt).toLocaleDateString('id-ID', { 
+        day: 'numeric',
+        month: 'long', 
+        year: 'numeric'
+      });
+    } catch (e) {
+      dateStr = expiry.toLocaleDateString('id-ID', { 
+        day: 'numeric',
+        month: 'long', 
+        year: 'numeric'
+      });
+    }
+    
+    console.log('Formatted date:', dateStr);
+    
+    // Send notification to group/chat
+    await sock.sendMessage(remoteJid, { 
+      text: `✅ User @${mentionName} ${action}!\n\n⏰ Expired: ${dateStr}\n📅 Durasi: ${days} hari`,
+      mentions: [targetJid]
+    });
+    
+    // Send private message to user with upgradePremiumMessage
+    try {
+      const userJid = targetNumber + '@s.whatsapp.net';
+      const { formatMsg } = require('../utils');
+      
+      // Get fresh bot data for message
+      const { getBotData } = require('../utils');
+      const freshBot = await getBotData(bot.id);
+      
+      const upgradeMsg = freshBot?.upgradePremiumMessage || bot.upgradePremiumMessage || 
+        'Selamat! Nomor Anda sudah upgrade ke premium.\n\nNikmati semua fitur premium bot!';
+      
+      const vars = {
+        namebot: bot.botName || 'Bot',
+        expired: dateStr,
+        durasi: `${days} hari`
+      };
+      
+      const formattedMsg = formatMsg(upgradeMsg, vars);
+      
+      await sock.sendMessage(userJid, { text: formattedMsg });
+      console.log('Sent upgrade notification to:', targetNumber);
+    } catch (notifErr) {
+      console.error('Error sending upgrade notification:', notifErr.message);
+    }
   } catch (err) {
-    await sock.sendMessage(msg.key.remoteJid, { text: `✅ User ${target.split('@')[0]} ditambahkan sebagai premium selama ${days} hari` });
+    console.error('Error in cmdAddPrem:', err);
+    await sock.sendMessage(remoteJid, { text: `❌ Error: ${err.message}` });
   }
 }
 
@@ -123,18 +281,87 @@ async function cmdDelPrem(sock, msg, bot, args, context = {}) {
     return await sock.sendMessage(msg.key.remoteJid, { text: '❌ Perintah ini hanya untuk owner!' });
   }
   
+  const remoteJid = msg.key.remoteJid;
+  const isGroup = remoteJid.endsWith('@g.us');
+  
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
-  if (!mentioned?.length && !args.length) {
-    return await sock.sendMessage(msg.key.remoteJid, { text: '❌ Tag user!\n\nContoh: .delprem @user' });
+  const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant;
+  
+  let targetJid = null;
+  
+  // Priority: 1. Mention, 2. Reply, 3. Number in args
+  if (mentioned?.length) {
+    // Method 1: Mention
+    targetJid = mentioned[0];
+  } else if (quotedMsg && quotedParticipant) {
+    // Method 2: Reply
+    targetJid = quotedParticipant;
+  } else if (args.length >= 1) {
+    // Method 3: Number in args
+    const numberArg = args[0].replace(/[^0-9]/g, '');
+    if (numberArg.length >= 10) {
+      targetJid = numberArg + '@s.whatsapp.net';
+    }
   }
   
-  const target = mentioned?.[0] || (args[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net');
+  if (!targetJid) {
+    return await sock.sendMessage(remoteJid, { 
+      text: '❌ Format salah!\n\n' +
+            'Cara pakai:\n' +
+            '1. Tag: .delprem @user\n' +
+            '2. Reply: Reply pesan user lalu ketik .delprem\n' +
+            '3. Nomor: .delprem 628123456789'
+    });
+  }
+  
+  // Resolve LID to phone number if in group
+  let targetNumber = targetJid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+  
+  if (targetJid.endsWith('@lid') && isGroup) {
+    try {
+      const groupMetadata = await sock.groupMetadata(remoteJid);
+      const participant = groupMetadata.participants.find(p => {
+        if (p.id === targetJid) return true;
+        if (p.lid && p.lid === targetJid) return true;
+        return false;
+      });
+      
+      if (participant && participant.phoneNumber) {
+        targetNumber = participant.phoneNumber.split('@')[0].replace(/[^0-9]/g, '');
+      }
+    } catch (e) {
+      console.error('Error resolving LID:', e.message);
+    }
+  }
   
   try {
-    await PremiumUser.destroy({ where: { number: target.split('@')[0] } });
-  } catch (e) {}
-  
-  await sock.sendMessage(msg.key.remoteJid, { text: `✅ User ${target.split('@')[0]} dihapus dari premium` });
+    await PremiumUser.destroy({ 
+      where: { 
+        botId: bot.id,
+        number: targetNumber 
+      } 
+    });
+    
+    // Get mention name (pushName or number)
+    const { getMentionName } = require('../utils');
+    let mentionName = targetNumber;
+    
+    if (isGroup) {
+      try {
+        const groupMetadata = await sock.groupMetadata(remoteJid);
+        mentionName = getMentionName(groupMetadata, targetJid, targetNumber);
+      } catch (e) {}
+    }
+    
+    await sock.sendMessage(remoteJid, { 
+      text: `✅ User @${mentionName} dihapus dari premium`,
+      mentions: [targetJid]
+    });
+  } catch (e) {
+    console.error('Error in cmdDelPrem:', e);
+    await sock.sendMessage(remoteJid, { text: `❌ Error: ${e.message}` });
+  }
 }
 
 // List premium users
@@ -143,22 +370,82 @@ async function cmdListPrem(sock, msg, bot, args, context = {}) {
     return await sock.sendMessage(msg.key.remoteJid, { text: '❌ Perintah ini hanya untuk owner!' });
   }
   
+  const remoteJid = msg.key.remoteJid;
+  const isGroup = remoteJid.endsWith('@g.us');
+  
   try {
-    const premUsers = await PremiumUser.findAll({ where: { botId: bot?.id || 1 } });
-    
-    if (!premUsers.length) {
-      return await sock.sendMessage(msg.key.remoteJid, { text: '📋 Tidak ada user premium' });
-    }
-    
-    let text = '👑 *LIST PREMIUM*\n\n';
-    premUsers.forEach((u, i) => {
-      const exp = new Date(u.expiredAt).toLocaleDateString('id-ID');
-      text += `${i + 1}. ${u.number} (exp: ${exp})\n`;
+    const premUsers = await PremiumUser.findAll({ 
+      where: { botId: bot.id },
+      order: [['expiredAt', 'DESC']] // Sort by expiry date
     });
     
-    await sock.sendMessage(msg.key.remoteJid, { text });
+    if (!premUsers.length) {
+      return await sock.sendMessage(remoteJid, { 
+        text: '📋 *LIST PREMIUM*\n\n❌ Tidak ada user premium saat ini' 
+      });
+    }
+    
+    // Get group metadata for pushNames
+    let groupMetadata = null;
+    if (isGroup) {
+      try {
+        groupMetadata = await sock.groupMetadata(remoteJid);
+      } catch (e) {}
+    }
+    
+    const { getMentionName } = require('../utils');
+    const now = new Date();
+    
+    let text = '👑 *LIST PREMIUM USERS*\n';
+    text += `━━━━━━━━━━━━━━━━━━\n`;
+    text += `📊 Total: ${premUsers.length} user${premUsers.length > 1 ? 's' : ''}\n\n`;
+    
+    const mentions = [];
+    
+    premUsers.forEach((u, i) => {
+      const userJid = u.number + '@s.whatsapp.net';
+      const expiredAt = new Date(u.expiredAt);
+      const isExpired = expiredAt < now;
+      
+      // Get mention name
+      let mentionName = u.number;
+      if (isGroup && groupMetadata) {
+        mentionName = getMentionName(groupMetadata, userJid, u.number);
+      }
+      
+      // Calculate remaining days
+      const diffTime = expiredAt - now;
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      // Format date
+      const dateStr = expiredAt.toLocaleDateString('id-ID', { 
+        day: 'numeric',
+        month: 'short', 
+        year: 'numeric'
+      });
+      
+      // Status emoji
+      const statusEmoji = isExpired ? '❌' : (diffDays <= 7 ? '⚠️' : '✅');
+      const statusText = isExpired ? 'EXPIRED' : (diffDays <= 7 ? `${diffDays} hari lagi` : `${diffDays} hari lagi`);
+      
+      text += `${i + 1}. ${statusEmoji} @${mentionName}\n`;
+      text += `   📅 Expired: ${dateStr}\n`;
+      text += `   ⏰ Status: ${statusText}\n`;
+      if (i < premUsers.length - 1) text += `\n`;
+      
+      mentions.push(userJid);
+    });
+    
+    text += `\n━━━━━━━━━━━━━━━━━━\n`;
+    text += `💡 Gunakan .addprem untuk menambah/perpanjang`;
+    
+    await sock.sendMessage(remoteJid, { 
+      text,
+      mentions 
+    });
   } catch (err) {
-    await sock.sendMessage(msg.key.remoteJid, { text: '📋 Tidak ada user premium' });
+    console.error('Error in cmdListPrem:', err);
+    await sock.sendMessage(remoteJid, { text: `❌ Error: ${err.message}` });
   }
 }
 

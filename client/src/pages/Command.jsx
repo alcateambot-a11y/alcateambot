@@ -34,31 +34,75 @@ export default function Command() {
 
   const loadCommands = async () => {
     try {
-      const { data: botData } = await api.get('/bots/my-bot')
+      // Add timestamp to prevent browser caching
+      const timestamp = Date.now();
+      const { data: botData } = await api.get(`/bots/my-bot?t=${timestamp}`)
       if (!botData || !botData.id) { setLoading(false); return }
-      const { data: masterCmds } = await api.get('/bots/commands/list')
-      let savedSettings = {}
+      
+      const { data: masterCmds } = await api.get(`/bots/commands/list?t=${timestamp}`)
+      
+      // Parse commandSettings from bot data
+      let commandSettings = {}
       try {
-        const { data: saved } = await api.get('/bots/' + botData.id + '/commands')
-        saved.forEach(c => { savedSettings[c.name] = c })
-      } catch (e) {}
-      const merged = masterCmds.map((cmd, idx) => ({
-        id: idx + 1, name: cmd.name,
-        aliases: cmd.aliases || [],
-        category: cmd.category || 'general', description: cmd.description || '', example: cmd.example || '',
-        limit: savedSettings[cmd.name]?.limit ?? cmd.limit ?? 0,
-        level: savedSettings[cmd.name]?.level ?? 0,
-        cooldown: savedSettings[cmd.name]?.cooldown ?? cmd.cooldown ?? 5,
-        active: savedSettings[cmd.name]?.enabled ?? true,
-        groupOnly: savedSettings[cmd.name]?.groupOnly ?? false,
-        privateOnly: savedSettings[cmd.name]?.privateOnly ?? false,
-        premiumOnly: savedSettings[cmd.name]?.premiumOnly ?? cmd.premiumOnly ?? false,
-        ownerOnly: savedSettings[cmd.name]?.ownerOnly ?? false,
-        adminOnly: savedSettings[cmd.name]?.adminOnly ?? false,
-        sewaOnly: savedSettings[cmd.name]?.sewaOnly ?? false,
-      }))
+        commandSettings = JSON.parse(botData.commandSettings || '{}')
+        console.log('=== LOAD COMMANDS DEBUG ===')
+        console.log('Timestamp:', timestamp)
+        console.log('Bot ID:', botData.id)
+        console.log('CommandSettings keys:', Object.keys(commandSettings).length)
+        console.log('Sample - couple premium:', commandSettings.couple?.premiumOnly)
+        console.log('Sample - ai premium:', commandSettings.ai?.premiumOnly)
+      } catch (e) {
+        console.error('Error parsing commandSettings:', e)
+      }
+      
+      // Merge master commands with saved settings
+      const merged = masterCmds.map((cmd, idx) => {
+        const saved = commandSettings[cmd.name]
+        
+        // IMPORTANT: If setting exists in commandSettings, use it (even if false)
+        // Only use master list value if setting doesn't exist at all
+        const result = {
+          id: idx + 1, 
+          name: cmd.name,
+          aliases: cmd.aliases || [],
+          category: cmd.category || 'general', 
+          description: saved?.description ?? cmd.description ?? '', 
+          example: saved?.example ?? cmd.example ?? '',
+          limit: saved?.limit ?? cmd.limit ?? 0,
+          level: saved?.level ?? 0,
+          cooldown: saved?.cooldown ?? cmd.cooldown ?? 5,
+          active: saved?.enabled ?? true,
+          groupOnly: saved?.groupOnly ?? false,
+          privateOnly: saved?.privateOnly ?? false,
+          // CRITICAL FIX: Check if premiumOnly exists in saved settings
+          // If exists (even if false), use it. Otherwise use master list value.
+          premiumOnly: saved && 'premiumOnly' in saved ? saved.premiumOnly : (cmd.premiumOnly ?? false),
+          ownerOnly: saved?.ownerOnly ?? false,
+          adminOnly: saved?.adminOnly ?? false,
+          sewaOnly: saved?.sewaOnly ?? false,
+        }
+        
+        // Debug specific commands
+        if (cmd.name === 'couple' || cmd.name === 'ai') {
+          console.log(`Merged ${cmd.name}:`, {
+            savedPremium: saved?.premiumOnly,
+            masterPremium: cmd.premiumOnly,
+            finalPremium: result.premiumOnly
+          })
+        }
+        
+        return result
+      })
+      
       setCommands(merged)
-    } catch (err) { toast.error('Gagal memuat commands') }
+      console.log('Commands loaded:', merged.length)
+      console.log('Premium commands:', merged.filter(c => c.premiumOnly).length)
+      console.log('=== END LOAD DEBUG ===')
+
+    } catch (err) { 
+      console.error('Error loading commands:', err)
+      toast.error('Gagal memuat commands') 
+    }
     setLoading(false)
   }
 
@@ -85,19 +129,79 @@ export default function Command() {
   const saveCommand = async () => {
     if (!editModal.command) return
     setSaving(true)
+    
     try {
+      console.log('=== SAVE COMMAND START ===')
+      
+      // Get bot data
       const { data: botData } = await api.get('/bots/my-bot')
+      console.log('Bot data received:', botData.id)
+      
       const cmd = editModal.command
-      await api.put('/bots/' + botData.id + '/commands', {
-        commands: [{ name: cmd.name, category: cmd.category, description: cmd.description, enabled: cmd.active,
-          limit: cmd.limit, level: cmd.level, cooldown: cmd.cooldown, groupOnly: cmd.groupOnly,
-          privateOnly: cmd.privateOnly, premiumOnly: cmd.premiumOnly, ownerOnly: cmd.ownerOnly,
-          adminOnly: cmd.adminOnly, sewaOnly: cmd.sewaOnly }]
-      })
-      setCommands(prev => prev.map(c => c.name === cmd.name ? cmd : c))
+      
+      console.log('Command to save:', cmd.name)
+      console.log('Premium value:', cmd.premiumOnly)
+      console.log('Active value:', cmd.active)
+      
+      const payload = {
+        commands: [{ 
+          name: cmd.name, 
+          category: cmd.category, 
+          description: cmd.description, 
+          example: cmd.example, 
+          enabled: cmd.active === true,
+          limit: cmd.limit, 
+          level: cmd.level, 
+          cooldown: cmd.cooldown, 
+          groupOnly: cmd.groupOnly === true,
+          privateOnly: cmd.privateOnly === true,
+          premiumOnly: cmd.premiumOnly === true,
+          ownerOnly: cmd.ownerOnly === true,
+          adminOnly: cmd.adminOnly === true,
+          sewaOnly: cmd.sewaOnly === true
+        }]
+      }
+      
+      console.log('Payload to send:', JSON.stringify(payload, null, 2))
+      console.log('API URL:', `/bots/${botData.id}/commands`)
+      
+      // Save to server
+      const response = await api.put(`/bots/${botData.id}/commands`, payload)
+      
+      console.log('✅ Server response:', response.data)
+      
+      // Check verification data
+      if (response.data.verification) {
+        console.log('=== SERVER VERIFICATION ===');
+        response.data.verification.forEach(v => {
+          console.log(`${v.name}: sent=${v.sent}, saved=${v.saved}`);
+          if (v.sent !== v.saved) {
+            console.error(`❌ MISMATCH: ${v.name}`);
+          }
+        });
+        console.log('=== END SERVER VERIFICATION ===');
+      }
+      
+      console.log('=== SAVE COMMAND SUCCESS ===')
+      
+      // CRITICAL FIX: Reload commands from database instead of updating local state
+      // This ensures we show exactly what's in the database
+      await loadCommands()
+      
       toast.success('Command berhasil disimpan')
       setEditModal({ show: false, command: null })
-    } catch (err) { toast.error('Gagal menyimpan') }
+      
+    } catch (err) { 
+      console.error('=== SAVE COMMAND ERROR ===')
+      console.error('Error:', err)
+      console.error('Error message:', err.message)
+      console.error('Error response:', err.response)
+      console.error('Error response data:', err.response?.data)
+      console.error('Error response status:', err.response?.status)
+      
+      toast.error('Gagal menyimpan: ' + (err.response?.data?.error || err.message))
+    }
+    
     setSaving(false)
   }
   const resetCommand = (cmd) => {
@@ -110,8 +214,22 @@ export default function Command() {
   return (
     <DashboardLayout>
       <div className="mb-4">
-        <h1 className="text-xl font-bold text-gray-800 dark:text-white">Command</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Kelola command bot</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-gray-800 dark:text-white">Command</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Kelola command bot</p>
+          </div>
+          <button 
+            onClick={() => {
+              setLoading(true);
+              loadCommands();
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Reload
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -300,6 +418,30 @@ export default function Command() {
               <button onClick={() => setEditModal({ show: false, command: null })} className="p-2 text-gray-400 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><X className="w-5 h-5" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Description & Example */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Description</label>
+                  <textarea 
+                    value={editModal.command.description || ''} 
+                    onChange={(e) => setEditModal(prev => ({ ...prev, command: { ...prev.command, description: e.target.value } }))} 
+                    placeholder="Deskripsi command..."
+                    rows={2}
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm resize-none" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Example</label>
+                  <input 
+                    type="text" 
+                    value={editModal.command.example || ''} 
+                    onChange={(e) => setEditModal(prev => ({ ...prev, command: { ...prev.command, example: e.target.value } }))} 
+                    placeholder="Contoh: .sticker (reply gambar)"
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm" 
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 {[{ key: 'active', label: 'Active' }, { key: 'groupOnly', label: 'Group Only' }, { key: 'privateOnly', label: 'Private Only' }, { key: 'premiumOnly', label: 'Premium' }, { key: 'ownerOnly', label: 'Owner Only' }, { key: 'adminOnly', label: 'Admin Only' }, { key: 'sewaOnly', label: 'Sewa Only' }].map(({ key, label }) => (
                   <div key={key} className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">

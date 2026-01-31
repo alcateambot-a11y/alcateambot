@@ -222,29 +222,72 @@ router.post('/:id/stop', async (req, res) => {
 // Delete session
 router.delete('/:id/session', async (req, res) => {
   try {
+    console.log('=== DELETE SESSION ===');
+    console.log('Bot ID:', req.params.id);
+    console.log('User ID:', req.user?.id);
+    
     const bot = await Bot.findOne({ where: { id: req.params.id, userId: req.user.id } });
-    if (!bot) return res.status(404).json({ error: 'Bot tidak ditemukan' });
+    if (!bot) {
+      console.log('Bot not found');
+      return res.status(404).json({ error: 'Bot tidak ditemukan' });
+    }
+    
+    console.log('Found bot:', bot.id, bot.name);
     
     // Stop bot if running
-    const sock = getSession(bot.id);
-    if (sock) {
-      try {
-        sock.logout();
-      } catch (e) {
-        // Ignore logout errors
+    try {
+      const sock = getSession(bot.id);
+      if (sock) {
+        console.log('Stopping active session...');
+        try {
+          await sock.logout();
+        } catch (logoutErr) {
+          console.log('Logout error (ignored):', logoutErr.message);
+        }
+        try {
+          sock.end();
+        } catch (endErr) {
+          console.log('End error (ignored):', endErr.message);
+        }
+        sessions.delete(bot.id);
+        console.log('Session removed from memory');
       }
-      sessions.delete(bot.id);
+    } catch (sessionErr) {
+      console.log('Session cleanup error (ignored):', sessionErr.message);
     }
     
     // Delete session folder
     const sessionPath = path.join(__dirname, '../sessions', `${bot.id}`);
+    console.log('Session path:', sessionPath);
+    
     if (fs.existsSync(sessionPath)) {
-      fs.rmSync(sessionPath, { recursive: true });
+      try {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+        console.log('Session folder deleted');
+      } catch (fsErr) {
+        console.log('Failed to delete session folder:', fsErr.message);
+        // Try alternative method
+        try {
+          const files = fs.readdirSync(sessionPath);
+          for (const file of files) {
+            fs.unlinkSync(path.join(sessionPath, file));
+          }
+          fs.rmdirSync(sessionPath);
+          console.log('Session folder deleted (alternative method)');
+        } catch (altErr) {
+          console.log('Alternative delete also failed:', altErr.message);
+        }
+      }
+    } else {
+      console.log('Session folder does not exist');
     }
     
     await Bot.update({ status: 'disconnected', phone: null, connectedAt: null }, { where: { id: bot.id } });
+    console.log('Bot status updated to disconnected');
+    
     res.json({ message: 'Session dihapus' });
   } catch (err) {
+    console.error('Delete session error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -422,19 +465,86 @@ router.put('/:id/commands', async (req, res) => {
     if (!bot) return res.status(404).json({ error: 'Bot tidak ditemukan' });
     
     const { commands } = req.body;
-    for (const cmd of commands) {
-      await Command.upsert({
-        botId: bot.id,
-        name: cmd.name,
-        category: cmd.category,
-        description: cmd.description,
-        enabled: cmd.enabled
-      });
+    
+    console.log('=== SAVE COMMANDS DEBUG ===');
+    console.log('Bot ID:', bot.id);
+    console.log('Commands to save:', commands.length);
+    
+    // Get current commandSettings
+    let commandSettings = {};
+    try {
+      commandSettings = JSON.parse(bot.commandSettings || '{}');
+    } catch (e) {
+      console.error('Error parsing commandSettings:', e);
+      commandSettings = {};
     }
     
-    const updatedCommands = await Command.findAll({ where: { botId: bot.id } });
-    res.json(updatedCommands);
+    // Update commandSettings for each command
+    for (const cmd of commands) {
+      console.log(`Saving ${cmd.name}: premium=${cmd.premiumOnly}, enabled=${cmd.enabled}`);
+      
+      if (!commandSettings[cmd.name]) {
+        commandSettings[cmd.name] = {};
+      }
+      
+      // CRITICAL FIX: Use explicit values, don't use || for booleans
+      commandSettings[cmd.name] = {
+        enabled: cmd.enabled === true,
+        description: cmd.description || '',
+        example: cmd.example || '',
+        category: cmd.category || '',
+        limit: typeof cmd.limit === 'number' ? cmd.limit : 0,
+        level: typeof cmd.level === 'number' ? cmd.level : 0,
+        cooldown: typeof cmd.cooldown === 'number' ? cmd.cooldown : 5,
+        groupOnly: cmd.groupOnly === true,
+        privateOnly: cmd.privateOnly === true,
+        premiumOnly: cmd.premiumOnly === true,  // ← EXPLICIT boolean check
+        ownerOnly: cmd.ownerOnly === true,
+        adminOnly: cmd.adminOnly === true,
+        sewaOnly: cmd.sewaOnly === true
+      };
+      
+      console.log(`Saved ${cmd.name}:`, commandSettings[cmd.name]);
+    }
+    
+    // Save to database
+    const stringified = JSON.stringify(commandSettings);
+    console.log('Stringified commandSettings length:', stringified.length);
+    
+    await bot.update({
+      commandSettings: stringified
+    });
+    
+    console.log('✅ bot.update() called');
+    
+    // CRITICAL: Verify the save by reloading from database
+    await bot.reload();
+    const verifySettings = JSON.parse(bot.commandSettings || '{}');
+    
+    console.log('=== VERIFICATION AFTER SAVE ===');
+    for (const cmd of commands) {
+      const saved = verifySettings[cmd.name];
+      console.log(`${cmd.name}: sent=${cmd.premiumOnly}, saved=${saved?.premiumOnly}`);
+      
+      if (cmd.premiumOnly !== saved?.premiumOnly) {
+        console.error(`❌ MISMATCH for ${cmd.name}!`);
+      }
+    }
+    console.log('=== END VERIFICATION ===');
+    
+    // Return the updated settings for verification
+    res.json({ 
+      success: true, 
+      message: 'Commands updated successfully',
+      updatedCommands: commands.map(c => c.name),
+      verification: commands.map(c => ({
+        name: c.name,
+        sent: c.premiumOnly,
+        saved: verifySettings[c.name]?.premiumOnly
+      }))
+    });
   } catch (err) {
+    console.error('❌ Error updating commands:', err);
     res.status(500).json({ error: err.message });
   }
 });

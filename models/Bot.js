@@ -9,6 +9,10 @@ const Bot = sequelize.define('Bot', {
   status: { type: DataTypes.ENUM('disconnected', 'connecting', 'connected'), defaultValue: 'disconnected' },
   sessionData: { type: DataTypes.TEXT },
   
+  // Selfbot Mode
+  isSelfbot: { type: DataTypes.BOOLEAN, defaultValue: false },
+  selfbotEnabled: { type: DataTypes.BOOLEAN, defaultValue: false },
+  
   // Subscription
   plan: { type: DataTypes.ENUM('free', 'basic', 'premium', 'unlimited'), defaultValue: 'free' },
   expiredAt: { type: DataTypes.DATE },

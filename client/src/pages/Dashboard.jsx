@@ -102,7 +102,35 @@ export default function Dashboard() {
   }
 
   const stopBot = async () => { if (!bot) return; setActionLoading('stop'); try { await api.post(`/bots/${bot.id}/stop`); toast.success('Bot stopped'); loadBot() } catch (err) { toast.error(err.response?.data?.error || 'Gagal stop bot') } setActionLoading('') }
-  const deleteSession = async () => { if (!bot || !confirm('Yakin ingin menghapus session?')) return; setActionLoading('delete'); try { await api.delete(`/bots/${bot.id}/session`); toast.success('Session dihapus'); loadBot() } catch (err) { toast.error(err.response?.data?.error || 'Gagal hapus session') } setActionLoading('') }
+  const deleteSession = async () => { 
+    // Allow delete even if bot object is incomplete
+    let botId = bot?.id
+    if (!botId) {
+      // Try to get bot ID from localStorage
+      try {
+        const storedBot = JSON.parse(localStorage.getItem('bot') || '{}')
+        botId = storedBot.id
+      } catch (e) {}
+    }
+    
+    if (!botId) {
+      toast.error('Bot tidak ditemukan')
+      return
+    }
+    
+    if (!confirm('Yakin ingin menghapus session? Anda perlu scan QR code ulang.')) return
+    
+    setActionLoading('delete')
+    try { 
+      await api.delete(`/bots/${botId}/session`)
+      toast.success('Session dihapus! Silakan klik Start untuk scan QR baru.')
+      loadBot() 
+    } catch (err) { 
+      console.error('Delete session error:', err)
+      toast.error(err.response?.data?.error || 'Gagal hapus session') 
+    } 
+    setActionLoading('') 
+  }
 
   if (loading) return <DashboardLayout><div className="flex items-center justify-center h-64"><RefreshCw className="w-8 h-8 animate-spin text-purple-600" /></div></DashboardLayout>
 

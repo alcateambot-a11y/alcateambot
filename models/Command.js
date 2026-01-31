@@ -6,7 +6,8 @@ const Command = sequelize.define('Command', {
   botId: { type: DataTypes.INTEGER, allowNull: false },
   name: { type: DataTypes.STRING, allowNull: false },
   category: { type: DataTypes.STRING, defaultValue: 'Custom' },
-  description: { type: DataTypes.STRING },
+  description: { type: DataTypes.TEXT },
+  example: { type: DataTypes.STRING },
   enabled: { type: DataTypes.BOOLEAN, defaultValue: true },
 });
 

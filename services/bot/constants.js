@@ -78,8 +78,12 @@ function generateDefaultMenu() {
     { key: 'RANDOM', emoji: '🎲', name: 'RANDOM' },
     { key: 'GROUP', emoji: '👥', name: 'GROUP' },
     { key: 'OWNER', emoji: '👑', name: 'OWNER' },
-    { key: 'MAKER', emoji: '🎨', name: 'MAKER' }
+    { key: 'MAKER', emoji: '🎨', name: 'MAKER' },
+    { key: 'TRADING', emoji: '📈', name: 'TRADING' }
   ];
+  
+  // Track which categories have been displayed
+  const displayedCategories = new Set();
   
   let menu = `*⊱ ━━━━━━━━ ⊰*
 *• ✦ ABOUT ✦ •*
@@ -90,9 +94,11 @@ function generateDefaultMenu() {
 *>> Prefix:* {prefix} 🔧
 `;
 
+  // Display categories in order
   categoryOrder.forEach(({ key, emoji, name }) => {
     const cmds = categories[key];
     if (cmds && cmds.length > 0) {
+      displayedCategories.add(key);
       menu += `
 *⊱ ━━━━━━━━ ⊰*
 *• ${emoji} ${name} (${cmds.length}) •*
@@ -100,6 +106,22 @@ function generateDefaultMenu() {
       cmds.forEach(cmd => {
         menu += `┃ ◈ {prefix}${cmd}\n`;
       });
+    }
+  });
+  
+  // Display any remaining categories not in categoryOrder (for future-proofing)
+  Object.keys(categories).forEach(key => {
+    if (!displayedCategories.has(key)) {
+      const cmds = categories[key];
+      if (cmds && cmds.length > 0) {
+        menu += `
+*⊱ ━━━━━━━━ ⊰*
+*• ✨ ${key} (${cmds.length}) •*
+`;
+        cmds.forEach(cmd => {
+          menu += `┃ ◈ {prefix}${cmd}\n`;
+        });
+      }
     }
   });
   

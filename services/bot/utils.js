@@ -40,11 +40,36 @@ function checkOwner(bot, sender) {
 async function getBotData(botId) {
   try {
     console.log('getBotData called with botId:', botId);
-    const bot = await Bot.findByPk(botId);
+    
+    // CRITICAL: Force fresh read from database, bypass ALL caches
+    const bot = await Bot.findByPk(botId, {
+      raw: false,
+      nest: true,
+      // Force Sequelize to bypass cache
+      useMaster: true,
+      // Don't use any cached instance
+      rejectOnEmpty: false
+    });
+    
+    // Force reload from database
     if (bot) {
+      // Clear any instance cache
+      bot._previousDataValues = {};
+      bot.dataValues = {};
+      
+      // Reload fresh data
+      await bot.reload({
+        logging: false
+      });
+      
       console.log('getBotData result - footerText:', bot.footerText);
+      console.log('getBotData result - commandSettings length:', bot.commandSettings?.length || 0);
+      
+      // Return plain object to avoid any Sequelize caching
+      return bot.get({ plain: true });
     }
-    return bot ? bot.toJSON() : null;
+    
+    return null;
   } catch (err) {
     console.error('Error getting bot data:', err.message);
     return null;
@@ -193,6 +218,47 @@ function formatUptime() {
   return `${days}d ${hours}h ${minutes}m ${seconds}s`;
 }
 
+/**
+ * Get mention name for user (pushName or number)
+ * @param {Object} groupMetadata - Group metadata from sock.groupMetadata()
+ * @param {string} jid - User JID (e.g., 6283174020347@s.whatsapp.net)
+ * @param {string} fallbackNumber - Fallback number if pushName not found
+ * @returns {string} Mention name (e.g., "Argan" or "6283174020347")
+ */
+function getMentionName(groupMetadata, jid, fallbackNumber = null) {
+  try {
+    // Try to get pushName from group metadata
+    if (groupMetadata && groupMetadata.participants) {
+      const participant = groupMetadata.participants.find(p => {
+        // Direct match
+        if (p.id === jid) return true;
+        // LID match
+        if (p.lid && p.lid === jid) return true;
+        // Phone number match
+        if (p.phoneNumber) {
+          const pPhone = p.phoneNumber.split('@')[0].replace(/[^0-9]/g, '');
+          const jPhone = jid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+          if (pPhone === jPhone) return true;
+        }
+        return false;
+      });
+      
+      // Return pushName if available and not empty
+      if (participant && participant.notify && participant.notify.trim()) {
+        return participant.notify.trim();
+      }
+    }
+    
+    // Fallback to number
+    const number = fallbackNumber || jid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+    return number;
+  } catch (e) {
+    // If error, return number
+    const number = fallbackNumber || jid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+    return number;
+  }
+}
+
 module.exports = {
   userCooldowns,
   startTime,
@@ -206,5 +272,6 @@ module.exports = {
   getBotData,
   getUserData,
   isUserPremium,
-  getUserPlanInfo
+  getUserPlanInfo,
+  getMentionName  // NEW!
 };
