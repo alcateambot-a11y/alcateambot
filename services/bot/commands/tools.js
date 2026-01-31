@@ -264,8 +264,7 @@ async function cmdSticker(sock, msg, bot, args) {
     
     const buffer = await downloadMediaMessage(mediaMsg, 'buffer', {});
     
-    // Use webp converter
-    const webp = require('node-webpmux');
+    // Use sharp for image processing
     const sharp = require('sharp');
     
     let stickerBuffer;
@@ -315,33 +314,42 @@ async function cmdSticker(sock, msg, bot, args) {
         .toBuffer();
     }
     
-    // Add EXIF data
-    const img = new webp.Image();
-    await img.load(stickerBuffer);
+    // Try to add EXIF data (optional, skip if node-webpmux not available)
+    try {
+      const webp = await import('node-webpmux');
+      const img = new webp.Image();
+      await img.load(stickerBuffer);
     
-    const packname = args[0] || bot?.name || 'Bot';
-    const author = args[1] || 'WhatsApp Bot';
-    
-    const exif = {
-      'sticker-pack-id': 'bot-sticker',
-      'sticker-pack-name': packname,
-      'sticker-pack-publisher': author
-    };
-    
-    const exifBuffer = Buffer.from([
-      0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57,
-      0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00
-    ]);
-    
-    const jsonBuffer = Buffer.from(JSON.stringify(exif), 'utf-8');
-    const exifFull = Buffer.concat([exifBuffer, jsonBuffer]);
-    exifFull.writeUInt32LE(jsonBuffer.length, 14);
-    
-    img.exif = exifFull;
-    
-    await sock.sendMessage(msg.key.remoteJid, {
-      sticker: await img.save(null)
-    });
+      const packname = args[0] || bot?.name || 'Bot';
+      const author = args[1] || 'WhatsApp Bot';
+      
+      const exif = {
+        'sticker-pack-id': 'bot-sticker',
+        'sticker-pack-name': packname,
+        'sticker-pack-publisher': author
+      };
+      
+      const exifBuffer = Buffer.from([
+        0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57,
+        0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00
+      ]);
+      
+      const jsonBuffer = Buffer.from(JSON.stringify(exif), 'utf-8');
+      const exifFull = Buffer.concat([exifBuffer, jsonBuffer]);
+      exifFull.writeUInt32LE(jsonBuffer.length, 14);
+      
+      img.exif = exifFull;
+      
+      await sock.sendMessage(msg.key.remoteJid, {
+        sticker: await img.save(null)
+      });
+    } catch (exifErr) {
+      // If EXIF fails, send sticker without metadata
+      console.log('Sending sticker without EXIF metadata');
+      await sock.sendMessage(msg.key.remoteJid, {
+        sticker: stickerBuffer
+      });
+    }
   } catch (err) {
     console.error('Sticker Error:', err.message);
     await sock.sendMessage(msg.key.remoteJid, { text: '❌ Gagal membuat sticker' });

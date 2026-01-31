@@ -75,17 +75,24 @@ function createExifBuffer(packname, author) {
 // Add EXIF metadata for sticker pack info
 async function addExifToWebp(webpBuffer, packname, author) {
   try {
-    const { Image } = require('node-webpmux');
-    
-    const img = new Image();
-    await img.load(webpBuffer);
-    
-    // Create and set EXIF data
-    const exifBuffer = createExifBuffer(packname, author);
-    img.exif = exifBuffer;
-    
-    // Save with EXIF
-    return await img.save(null);
+    // Try to use node-webpmux if available (dynamic import for ES module)
+    try {
+      const { Image } = await import('node-webpmux');
+      
+      const img = new Image();
+      await img.load(webpBuffer);
+      
+      // Create and set EXIF data
+      const exifBuffer = createExifBuffer(packname, author);
+      img.exif = exifBuffer;
+      
+      // Save with EXIF
+      return await img.save(null);
+    } catch (importErr) {
+      console.log('node-webpmux not available, skipping EXIF metadata');
+      // Return original buffer if node-webpmux is not available
+      return webpBuffer;
+    }
   } catch (err) {
     console.error('EXIF error:', err.message);
     // Return original buffer if EXIF fails
