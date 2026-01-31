@@ -17,7 +17,17 @@ const apiRoutes = require('./routes/api');
 const adminRoutes = require('./routes/admin');
 const { sequelize } = require('./config/database');
 const { Bot } = require('./models');
-const { createSession } = require('./services/whatsapp');
+
+// Try to load WhatsApp service (may fail if native modules not available)
+let createSession = null;
+try {
+  const whatsappService = require('./services/whatsapp');
+  createSession = whatsappService.createSession;
+  console.log('✓ WhatsApp service loaded successfully');
+} catch (err) {
+  console.warn('⚠ WhatsApp service not available:', err.message);
+  console.warn('⚠ Bot features will be disabled. This is normal on first deploy.');
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -127,6 +137,12 @@ const fs = require('fs');
 // Auto-reconnect bots on server startup
 async function autoReconnectBots() {
   try {
+    // Skip if WhatsApp service not available
+    if (!createSession) {
+      console.log('⚠ Skipping bot auto-reconnect - WhatsApp service not available');
+      return;
+    }
+    
     console.log('Checking for bots to auto-reconnect...');
     const sessionsDir = path.join(__dirname, 'sessions');
     
@@ -143,8 +159,14 @@ async function autoReconnectBots() {
     
     console.log('Found session folders:', botFolders);
     
-    // Import selfbot connection
-    const { createSelfbotSession } = require('./services/selfbotConnection');
+    // Try to import selfbot connection
+    let createSelfbotSession = null;
+    try {
+      const selfbotService = require('./services/selfbotConnection');
+      createSelfbotSession = selfbotService.createSelfbotSession;
+    } catch (err) {
+      console.warn('⚠ Selfbot service not available:', err.message);
+    }
     
     // Reconnect bots with delay between each to prevent spam
     for (let i = 0; i < botFolders.length; i++) {
@@ -160,7 +182,7 @@ async function autoReconnectBots() {
         // Check if bot exists in database
         const bot = await Bot.findByPk(botId);
         if (bot) {
-          if (isSelfbot && bot.isSelfbot) {
+          if (isSelfbot && bot.isSelfbot && createSelfbotSession) {
             console.log('Auto-reconnecting SELFBOT:', botId, 'for user:', bot.userId);
             try {
               await createSelfbotSession(botId, bot.userId, bot.phone);
@@ -171,7 +193,7 @@ async function autoReconnectBots() {
             } catch (err) {
               console.error('Failed to auto-reconnect selfbot', botId, ':', err.message);
             }
-          } else if (!isSelfbot && !bot.isSelfbot) {
+          } else if (!isSelfbot && !bot.isSelfbot && createSession) {
             console.log('Auto-reconnecting bot:', botId, 'for user:', bot.userId);
             try {
               await createSession(botId, bot.userId);
