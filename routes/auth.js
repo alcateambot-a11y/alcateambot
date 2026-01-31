@@ -5,34 +5,41 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { User } = require('../models');
 const router = express.Router();
 
-// Configure Passport Google Strategy
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: process.env.GOOGLE_CALLBACK_URL
-  },
-  async (accessToken, refreshToken, profile, done) => {
-    try {
-      let user = await User.findOne({ where: { email: profile.emails[0].value } });
-      
-      if (!user) {
-        user = await User.create({
-          name: profile.displayName,
-          email: profile.emails[0].value,
-          password: require('crypto').randomBytes(32).toString('hex'),
-          googleId: profile.id,
-          avatar: profile.photos[0]?.value
-        });
-      } else if (!user.googleId) {
-        await user.update({ googleId: profile.id, avatar: profile.photos[0]?.value });
+// Configure Passport Google Strategy (only if credentials are provided)
+const hasGoogleOAuth = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_CALLBACK_URL;
+
+if (hasGoogleOAuth) {
+  console.log('Google OAuth enabled');
+  passport.use(new GoogleStrategy({
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: process.env.GOOGLE_CALLBACK_URL
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      try {
+        let user = await User.findOne({ where: { email: profile.emails[0].value } });
+        
+        if (!user) {
+          user = await User.create({
+            name: profile.displayName,
+            email: profile.emails[0].value,
+            password: require('crypto').randomBytes(32).toString('hex'),
+            googleId: profile.id,
+            avatar: profile.photos[0]?.value
+          });
+        } else if (!user.googleId) {
+          await user.update({ googleId: profile.id, avatar: profile.photos[0]?.value });
+        }
+        
+        return done(null, user);
+      } catch (err) {
+        return done(err, null);
       }
-      
-      return done(null, user);
-    } catch (err) {
-      return done(err, null);
     }
-  }
-));
+  ));
+} else {
+  console.log('Google OAuth disabled - credentials not provided');
+}
 
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
@@ -82,27 +89,34 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Google OAuth
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-
-router.get('/google/callback', 
-  passport.authenticate('google', { failureRedirect: `${process.env.FRONTEND_URL}/login?error=google_failed` }),
-  (req, res) => {
-    console.log('=== GOOGLE LOGIN CALLBACK ===');
-    console.log('User ID:', req.user.id, 'Email:', req.user.email);
-    
-    const token = jwt.sign({ id: req.user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    const user = {
-      id: req.user.id,
-      name: req.user.name,
-      email: req.user.email,
-      apiKey: req.user.apiKey,
-      plan: req.user.plan,
-      role: req.user.role
-    };
-    res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`);
+// Google OAuth (only if enabled)
+router.get('/google', (req, res, next) => {
+  if (!hasGoogleOAuth) {
+    return res.status(503).json({ error: 'Google OAuth is not configured' });
   }
-);
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+});
+
+router.get('/google/callback', (req, res, next) => {
+  if (!hasGoogleOAuth) {
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=oauth_disabled`);
+  }
+  passport.authenticate('google', { failureRedirect: `${process.env.FRONTEND_URL}/login?error=google_failed` })(req, res, next);
+}, (req, res) => {
+  console.log('=== GOOGLE LOGIN CALLBACK ===');
+  console.log('User ID:', req.user.id, 'Email:', req.user.email);
+  
+  const token = jwt.sign({ id: req.user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  const user = {
+    id: req.user.id,
+    name: req.user.name,
+    email: req.user.email,
+    apiKey: req.user.apiKey,
+    plan: req.user.plan,
+    role: req.user.role
+  };
+  res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`);
+});
 
 // Get current user
 router.get('/me', require('../middleware/auth'), async (req, res) => {
